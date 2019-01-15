@@ -124,6 +124,7 @@ def options (ctx):
 def configure (ctx):
 	ctx.load('compiler_c')
 	ctx.load('gnu_dirs')
+	ctx.load('clang_compilation_database')
 
 	ctx.env.JULEA_DEBUG = ctx.options.debug
 
@@ -425,6 +426,16 @@ def build (ctx):
 		target = 'test/julea-test',
 		use = use_julea_core + ['lib/julea', 'lib/julea-item'],
 		includes = ['include', 'test'],
+		rpath = get_rpath(ctx),
+		install_path = None
+	)
+
+        # Dedup
+	ctx.program(
+		source = ctx.path.ant_glob('dedup/*.c'),
+		target = 'dedup/dedup-test',
+		use = use_julea_core + ['lib/julea', 'lib/julea-item'],
+		includes = ['include', 'dedup'],
 		rpath = get_rpath(ctx),
 		install_path = None
 	)
