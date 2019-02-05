@@ -120,6 +120,7 @@ def options (ctx):
 	ctx.add_option('--hdf5', action='store', default=None, help='HDF5 prefix', dest='hdf')
 	ctx.add_option('--otf', action='store', default=None, help='OTF prefix')
 	ctx.add_option('--sqlite', action='store', default=None, help='SQLite prefix')
+	ctx.add_option('--openssl', action='store', default=None, help='openssl prefix')
 
 def configure (ctx):
 	ctx.load('compiler_c')
@@ -162,6 +163,14 @@ def configure (ctx):
 		args = ['--cflags', '--libs', 'libbson-1.0 >= {0}'.format(libbson_version)],
 		uselib_store = 'LIBBSON',
 		pkg_config_path = get_pkg_config_path(ctx.options.libbson)
+	)
+
+	check_cfg_rpath(
+		ctx,
+		package = 'openssl',
+		args = ['--cflags', '--libs'],
+		uselib_store = 'OPENSSL',
+		pkg_config_path = get_pkg_config_path(ctx.options.openssl)
 	)
 
 	ctx.env.JULEA_LIBMONGOC = \
@@ -409,6 +418,7 @@ def build (ctx):
 		if client == 'item':
 			use_extra.append('lib/julea-kv')
 			use_extra.append('lib/julea-object')
+                        use_extra.append('OPENSSL')
 
 		ctx.shlib(
 			source = ctx.path.ant_glob('client/{0}/**/*.c'.format(client)),

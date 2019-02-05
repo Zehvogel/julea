@@ -39,6 +39,8 @@
 #include <julea-kv.h>
 #include <julea-object.h>
 
+#include <openssl/evp.h>
+
 /**
  * \defgroup JItem Item
  *
@@ -74,6 +76,7 @@ struct JItem
 	JDistribution* distribution;
 
 	JKV* kv;
+	JKV* kv_h;
 	JDistributedObject* object;
 
 	/**
@@ -160,6 +163,11 @@ j_item_unref (JItem* item)
 		if (item->kv != NULL)
 		{
 			j_kv_unref(item->kv);
+		}
+
+		if (item->kv_h != NULL)
+		{
+			j_kv_unref(item->kv_h);
 		}
 
 		if (item->object != NULL)
@@ -318,6 +326,7 @@ j_item_delete (JItem* item, JBatch* batch)
 	j_trace_enter(G_STRFUNC, NULL);
 
 	j_kv_delete(item->kv, batch);
+	j_kv_delete(item->kv_h, batch);
 	j_distributed_object_delete(item->object, batch);
 
 	j_trace_leave(G_STRFUNC);
@@ -378,6 +387,26 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	g_return_if_fail(bytes_written != NULL);
 
 	j_trace_enter(G_STRFUNC, NULL);
+
+	unsigned char hash[EVP_MAX_MD_SIZE];
+	unsigned int md_len;
+	EVP_MD_CTX *mdctx = EVP_MD_CTX_create();
+
+	EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
+	EVP_DigestUpdate(mdctx, data, length);
+	EVP_DigestFinal_ex(mdctx, hash, &md_len);
+	EVP_MD_CTX_destroy(mdctx);
+	printf("hash is: ");
+	for(unsigned int i = 0; i < md_len; i++)
+		printf("%02x", hash[i]);
+	printf("\n");
+
+	/* Call this once before exit. */
+	EVP_cleanup();
+
+
+	// meh bson_t später erstmal hash versuchen
+	// j_kv_put(item->kv_h, hash, batch);
 
 	// FIXME see j_item_write_exec
 	j_distributed_object_write(item->object, data, length, offset, bytes_written, batch);
@@ -538,6 +567,7 @@ j_item_new (JCollection* collection, gchar const* name, JDistribution* distribut
 
 	path = g_build_path("/", j_collection_get_name(item->collection), item->name, NULL);
 	item->kv = j_kv_new("items", path);
+	item->kv_h = j_kv_new("item_hashes", path);
 	item->object = j_distributed_object_new("item", path, item->distribution);
 
 end:
