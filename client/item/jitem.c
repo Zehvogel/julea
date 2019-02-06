@@ -57,6 +57,15 @@ struct JItemGetData
 
 typedef struct JItemGetData JItemGetData;
 
+struct JItemHashes
+{
+	gint64 hash_len;
+	gint64 hash_cnt;
+	guchar* hashes;
+};
+
+typedef struct JItemHashes JItemHashes;
+
 /**
  * A JItem.
  **/
@@ -356,7 +365,107 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 
 	j_trace_enter(G_STRFUNC, NULL);
 
+	bson_t* b = bson_new();
+	JItemHashes* hashes = g_slice_new(JItemHashes);
+
+	j_kv_get(item->kv_h, b, batch);
+	j_item_deserialize_hashes(hashes, b);
+
+	printf("read: hash is: ");
+	for(unsigned int i = 0; i < hashes->hash_len; i++)
+		printf("%02x", hashes->hashes[i]);
+	printf("\n");
+
 	j_distributed_object_read(item->object, data, length, offset, bytes_read, batch);
+
+	g_slice_free(JItemHashes, hashes);
+	j_trace_leave(G_STRFUNC);
+}
+
+
+bson_t*
+j_item_serialize_hashes (JItemHashes* hashes)
+{
+	bson_t* b;
+
+	g_return_val_if_fail(hashes != NULL, NULL);
+
+	j_trace_enter(G_STRFUNC, NULL);
+
+	b = bson_new();
+
+	BSON_APPEND_INT64(b, "md_len", hashes->hash_len);
+	BSON_APPEND_INT64(b, "num_hashes", hashes->hash_cnt);
+
+	bson_t b_document[hashes->hash_cnt];
+
+	bson_append_document_begin(b, "hashes", -1, b_document);
+
+	for (int i = 0; i < hashes->hash_cnt; i++)
+		bson_append_utf8(b_document, g_strdup_printf("%d", i), -1, (const gchar*)(hashes->hashes + i * hashes->hash_len), hashes->hash_len);
+
+	bson_append_document_end(b, b_document);
+
+	bson_destroy(b_document);
+
+
+	//bson_finish(b);
+
+
+	j_trace_leave(G_STRFUNC);
+
+	return b;
+}
+
+void
+j_item_deserialize_hashes (JItemHashes* hashes, bson_t const* b)
+{
+	bson_iter_t iterator;
+	bson_iter_t hash_iterator;
+
+	g_return_if_fail(hashes != NULL);
+	g_return_if_fail(b != NULL);
+
+	j_trace_enter(G_STRFUNC, NULL);
+
+	bson_iter_init(&iterator, b);
+
+	while (bson_iter_next(&iterator))
+	{
+		gchar const* key;
+
+		key = bson_iter_key(&iterator);
+
+		if (g_strcmp0(key, "md_len") == 0 && BSON_ITER_HOLDS_INT64(&iterator))
+		{
+			hashes->hash_len = bson_iter_int64(&iterator);
+		}
+		else if (g_strcmp0(key, "num_hashes") == 0 && BSON_ITER_HOLDS_INT64(&iterator))
+		{
+			hashes->hash_cnt = bson_iter_int64(&iterator);
+		}
+		else if (g_strcmp0(key, "hashes") == 0 && BSON_ITER_HOLDS_DOCUMENT(&iterator))
+		{
+			const guint8* data;
+			guint32 length;
+
+			bson_iter_document(&iterator, &length, &data);
+			bson_iter_init_from_data(&hash_iterator, data, length);
+
+		}
+	}
+	hashes->hashes = g_slice_alloc(hashes->hash_cnt * hashes->hash_len);
+	guint64 i = 0;
+	while (bson_iter_next(&hash_iterator))
+	{
+		if (BSON_ITER_HOLDS_UTF8(&hash_iterator))
+		{
+			printf("i: %lu\n", i);
+			//FIXME: use g_strdup
+			g_stpcpy((gchar*) &hashes->hashes[i*hashes->hash_len], bson_iter_utf8(&hash_iterator, NULL /*FIXME*/));
+			i++;
+		}
+	}
 
 	j_trace_leave(G_STRFUNC);
 }
@@ -388,15 +497,16 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 
 	j_trace_enter(G_STRFUNC, NULL);
 
-	unsigned char hash[EVP_MAX_MD_SIZE];
-	unsigned int md_len;
+	guchar hash[EVP_MAX_MD_SIZE];
+	guint md_len;
 	EVP_MD_CTX *mdctx = EVP_MD_CTX_create();
+	bson_t* value;
 
 	EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
 	EVP_DigestUpdate(mdctx, data, length);
 	EVP_DigestFinal_ex(mdctx, hash, &md_len);
 	EVP_MD_CTX_destroy(mdctx);
-	printf("hash is: ");
+	printf("write: hash is: ");
 	for(unsigned int i = 0; i < md_len; i++)
 		printf("%02x", hash[i]);
 	printf("\n");
@@ -404,9 +514,16 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	/* Call this once before exit. */
 	EVP_cleanup();
 
+	// FIXME put on stack?
+	JItemHashes* hashes = g_slice_new(JItemHashes);
+	hashes->hashes = hash;
+	hashes->hash_len = md_len;
+	hashes->hash_cnt = 1;
 
-	// meh bson_t später erstmal hash versuchen
-	// j_kv_put(item->kv_h, hash, batch);
+	value = j_item_serialize_hashes(hashes);
+	j_kv_put(item->kv_h, value, batch);
+
+	g_slice_free(JItemHashes, hashes);
 
 	// FIXME see j_item_write_exec
 	j_distributed_object_write(item->object, data, length, offset, bytes_written, batch);

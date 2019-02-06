@@ -17,13 +17,24 @@ test_item (void)
 		g_autoptr(JCollection) collection = NULL;
 		g_autoptr(JItem) item = NULL;
 		const char data[] = "test-data";
+		char data2[sizeof(data)];
 		guint64 bytes_written = 0;
+		guint64 bytes_read = 0;
 
 		batch = j_batch_new_for_template(J_SEMANTICS_TEMPLATE_DEFAULT);
 		collection = j_collection_create("test-collection", batch);
 		item = j_item_create(collection, "test-item", NULL, batch);
+		j_batch_execute(batch);
 
-		j_item_write (item, data, sizeof(data), 0, &bytes_written, batch);
+		printf("before write: data: %s\n", data);
+
+		j_item_write(item, data, sizeof(data), 0, &bytes_written, batch);
+		j_batch_execute(batch);
+		printf("bytes_written: %lu\n", bytes_written);
+		j_item_read(item, data2, sizeof(data2), 0, &bytes_read, batch);
+		j_batch_execute(batch);
+		printf("bytes_read: %lu\n", bytes_read);
+		printf("after read: data: %s\n", data2);
 
 		g_assert(item != NULL);
 	}
