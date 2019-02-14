@@ -480,9 +480,11 @@ static
 void
 j_item_hash_ref_callback (bson_t const* value, gpointer data_)
 {
+	bson_iter_t iter;
 	guint32* refcount = data_;
 
-	// iterzeug
+	if (bson_iter_init_find(&iter, value, "ref"))
+		*refcount = (guint32)bson_iter_int32(&iter);
 }
 /**
  * Writes an item.
@@ -543,6 +545,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		first_buf = g_slice_alloc(chunk_offset);
 		first_obj = j_distributed_object_new("chunks", g_array_index(hashes, gchar*, 0), item->distribution);
 		j_distributed_object_read(first_obj, first_buf, chunk_offset, item->chunk_size - chunk_offset, &bytes_read, batch);
+		// FIXME: use different (sub)batch and execute here
 	}
 	else if (chunk_offset > 0)
 	{
@@ -554,6 +557,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		last_buf = g_slice_alloc(remaining);
 		last_obj = j_distributed_object_new("chunks", g_array_index(hashes, gchar*, chunks - 1), item->distribution);
 		j_distributed_object_read(last_obj, last_buf, item->chunk_size - remaining, remaining, &bytes_read, batch);
+		// FIXME: use different (sub)batch and execute here
 	}
 	else if (remaining > 0)
 	{
@@ -562,6 +566,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 
 	for (guint64 chunk = 0; chunk < chunks; chunk++)
 	{
+		guint32 refcount = 0;
 		EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
 		if (chunk == 0)
 		{
@@ -580,15 +585,68 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		EVP_DigestFinal_ex(mdctx, hash, &md_len);
 		chunk_obj = j_distributed_object_new("chunks", (const gchar*)hash, item->distribution);
 		chunk_kv = j_kv_new("chunk_refs", (const gchar*)hash);
-		ref_bson = bson_new();
+		//ref_bson = bson_new();
 		// puh, hier vielleicht doch mit callback arbeiten weil ich ja
 		// keine ahnung hab wann ich den bson da aufräumen kann :/
-		j_kv_get(chunk_kv, ref_bson, batch); // yay batching
+		// das könnte man sich alles sparen wenn objekte globalen
+		// refcount hätten...
+		//j_kv_get(chunk_kv, ref_bson, batch); // yay batching
+		j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, batch);
+		if (refcount == 0)
+		{
+			guint64 chunk_bytes_written = 0;
+			j_distributed_object_create(chunk_obj, batch);
+
+			if (chunk == 0)
+			{
+				j_distributed_object_write(chunk_obj, first_buf, chunk_offset, 0, &chunk_bytes_written, batch);
+				j_distributed_object_write(chunk_obj, data, item->chunk_size - chunk_offset, chunk_offset, &chunk_bytes_written, batch);
+			}
+			else if (chunk == chunks -1)
+			{
+				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - remaining, 0, &chunk_bytes_written, batch);
+				j_distributed_object_write(chunk_obj, last_buf, remaining, item->chunk_size - remaining, &chunk_bytes_written, batch);
+			}
+			else
+			{
+				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size, 0, &chunk_bytes_written, batch);
+			}
+			*bytes_written += chunk_bytes_written;
+		}
 		new_ref_bson = bson_new();
+		bson_append_int32(new_ref_bson, "ref", -1, refcount+1);
+		j_kv_put(chunk_kv, new_ref_bson, batch);
 		// öh was passiert überhaupt bei put wenn es da schon was gibt?
 		// 	in LevelDB überschreibt neuer value den alten
 		// 	in LMDB per default wohl auch
 		// 	MongoDB backend benutzt eh replace statt insert
+
+		if (chunk < old_chunks)
+		{
+			gchar* old_hash = g_array_index(item->hashes, gchar*, chunk);
+			if (g_strcmp0(old_hash, (gchar*)hash) != 0)
+			{
+				chunk_kv = j_kv_new("chunk_refs", (const gchar*)old_hash);
+				j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, batch);
+				refcount -= 1;
+				if (refcount > 0)
+				{
+					new_ref_bson = bson_new();
+					bson_append_int32(new_ref_bson, "ref", -1, refcount);
+					j_kv_put(chunk_kv, new_ref_bson, batch);
+				}
+				else
+				{
+					j_kv_delete(chunk_kv, batch);
+					chunk_obj = j_distributed_object_new("chunks", (const gchar*)old_hash, item->distribution);
+					j_distributed_object_delete(chunk_obj, batch);
+					j_distributed_object_unref(chunk_obj);
+				}
+				g_array_remove_index(item->hashes, chunk);
+				//TODO: free old_hash
+				g_array_insert_val(item->hashes, chunk, hash);
+			}
+		}
 
 		// kann man einen bson_t nicht einfach modifizieren? :(
 	}
