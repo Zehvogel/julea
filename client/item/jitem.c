@@ -518,9 +518,10 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	gpointer first_buf, last_buf; // was wohl der type von last_buf ist :thinking:
 	JDistributedObject *first_obj, *last_obj, *chunk_obj;
 	JKV *chunk_kv;
-	bson_t *ref_bson, *new_ref_bson;
+	bson_t *new_ref_bson;
  	guchar hash[EVP_MAX_MD_SIZE];
  	guint md_len;
+	JBatch* sub_batch = j_batch_new(j_batch_get_semantics(batch));
  	EVP_MD_CTX *mdctx = EVP_MD_CTX_create();
 
 	// needs to be modified for non static hashing
@@ -544,7 +545,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		// get offset part of first_chunk
 		first_buf = g_slice_alloc(chunk_offset);
 		first_obj = j_distributed_object_new("chunks", g_array_index(hashes, gchar*, 0), item->distribution);
-		j_distributed_object_read(first_obj, first_buf, chunk_offset, item->chunk_size - chunk_offset, &bytes_read, batch);
+		j_distributed_object_read(first_obj, first_buf, chunk_offset, item->chunk_size - chunk_offset, &bytes_read, sub_batch);
 		// FIXME: use different (sub)batch and execute here
 	}
 	else if (chunk_offset > 0)
@@ -556,14 +557,14 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		// get remaining part of last_chunk
 		last_buf = g_slice_alloc(remaining);
 		last_obj = j_distributed_object_new("chunks", g_array_index(hashes, gchar*, chunks - 1), item->distribution);
-		j_distributed_object_read(last_obj, last_buf, item->chunk_size - remaining, remaining, &bytes_read, batch);
+		j_distributed_object_read(last_obj, last_buf, item->chunk_size - remaining, remaining, &bytes_read, sub_batch);
 		// FIXME: use different (sub)batch and execute here
 	}
 	else if (remaining > 0)
 	{
 		last_buf = g_slice_alloc0(remaining);
 	}
-
+	j_batch_execute(sub_batch);
 	for (guint64 chunk = 0; chunk < chunks; chunk++)
 	{
 		guint32 refcount = 0;
@@ -591,7 +592,8 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		// das könnte man sich alles sparen wenn objekte globalen
 		// refcount hätten...
 		//j_kv_get(chunk_kv, ref_bson, batch); // yay batching
-		j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, batch);
+		j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, sub_batch);
+		j_batch_execute(sub_batch);
 		if (refcount == 0)
 		{
 			guint64 chunk_bytes_written = 0;
@@ -615,7 +617,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		}
 		new_ref_bson = bson_new();
 		bson_append_int32(new_ref_bson, "ref", -1, refcount+1);
-		j_kv_put(chunk_kv, new_ref_bson, batch);
+		j_kv_put(chunk_kv, new_ref_bson, sub_batch);
 		// öh was passiert überhaupt bei put wenn es da schon was gibt?
 		// 	in LevelDB überschreibt neuer value den alten
 		// 	in LMDB per default wohl auch
@@ -627,7 +629,8 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 			if (g_strcmp0(old_hash, (gchar*)hash) != 0)
 			{
 				chunk_kv = j_kv_new("chunk_refs", (const gchar*)old_hash);
-				j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, batch);
+				j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, sub_batch);
+				j_batch_execute(sub_batch);
 				refcount -= 1;
 				if (refcount > 0)
 				{
