@@ -38,9 +38,6 @@
 
 G_BEGIN_DECLS
 
-struct JItemHashes;
-typedef struct JItemHashes JItemHashes;
-
 G_GNUC_INTERNAL JItem* j_item_new (JCollection*, gchar const*, JDistribution*);
 G_GNUC_INTERNAL JItem* j_item_new_from_bson (JCollection*, bson_t const*);
 
@@ -48,9 +45,6 @@ G_GNUC_INTERNAL JCollection* j_item_get_collection (JItem*);
 
 G_GNUC_INTERNAL bson_t* j_item_serialize (JItem*, JSemantics*);
 G_GNUC_INTERNAL void j_item_deserialize (JItem*, bson_t const*);
-
-G_GNUC_INTERNAL bson_t* j_item_serialize_hashes (JItemHashes*);
-G_GNUC_INTERNAL void j_item_deserialize_hashes (JItemHashes*, bson_t const*);
 
 G_GNUC_INTERNAL bson_oid_t const* j_item_get_id (JItem*);
 
