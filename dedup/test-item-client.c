@@ -16,7 +16,7 @@ test_item (void)
 		g_autoptr(JBatch) batch = NULL;
 		g_autoptr(JCollection) collection = NULL;
 		g_autoptr(JItem) item = NULL;
-		const char data[] = "test-data";
+		const char data[] = "1234567"; //test-data-12345
 		char data2[sizeof(data)];
 		guint64 bytes_written = 0;
 		guint64 bytes_read = 0;
@@ -28,7 +28,7 @@ test_item (void)
 
 		printf("before write: data: %s\n", data);
 
-		j_item_write(item, data, sizeof(data), 0, &bytes_written, batch);
+		j_item_write(item, &data, sizeof(data), 0, &bytes_written, batch);
 		j_batch_execute(batch);
 		printf("bytes_written: %lu\n", bytes_written);
 		j_item_read(item, data2, sizeof(data2), 0, &bytes_read, batch);

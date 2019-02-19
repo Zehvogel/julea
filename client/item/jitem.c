@@ -528,14 +528,22 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	first_chunk = offset / item->chunk_size;
 	chunk_offset = offset % item->chunk_size;
 	chunks = length / item->chunk_size;
-	last_chunk = first_chunk + chunks - 1; // might be unecesarry
+	//last_chunk = first_chunk + chunks - 1; // might be unecesarry
 	remaining = chunks * item->chunk_size - chunk_offset - length;
+	printf("Chunk Size: %ld\n", item->chunk_size);
+	printf("First_chunk: %ld\n", first_chunk);
+	printf("Offset: %ld\n", offset);
+	printf("Chunk Offset: %ld\n", chunk_offset);
+	printf("Chunks: %ld\n", chunks);
+	printf("remaining: %ld\n", remaining);
+	printf("Length: %ld\n", length);
 
 	hash_len = g_array_get_element_size(item->hashes);
 
 	old_chunks = MIN(0, MIN(chunks, item->hashes->len - first_chunk));
 	hashes = g_array_sized_new(FALSE, TRUE, hash_len, old_chunks);
 	g_array_insert_vals(hashes, 0, item->hashes->data, old_chunks * hash_len);
+
 
 	// get old_chunks:
 	// first_chunk if chunk_offset nonzero
@@ -545,25 +553,27 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		// get offset part of first_chunk
 		first_buf = g_slice_alloc(chunk_offset);
 		first_obj = j_distributed_object_new("chunks", g_array_index(hashes, gchar*, 0), item->distribution);
+		j_distributed_object_create(first_obj, sub_batch);
 		j_distributed_object_read(first_obj, first_buf, chunk_offset, item->chunk_size - chunk_offset, &bytes_read, sub_batch);
-		// FIXME: use different (sub)batch and execute here
 	}
 	else if (chunk_offset > 0)
 	{
 		first_buf = g_slice_alloc0(chunk_offset);
 	}
+
 	if (remaining > 0 && old_chunks == chunks)
 	{
 		// get remaining part of last_chunk
 		last_buf = g_slice_alloc(remaining);
 		last_obj = j_distributed_object_new("chunks", g_array_index(hashes, gchar*, chunks - 1), item->distribution);
+		j_distributed_object_create(last_obj, sub_batch);
 		j_distributed_object_read(last_obj, last_buf, item->chunk_size - remaining, remaining, &bytes_read, sub_batch);
-		// FIXME: use different (sub)batch and execute here
 	}
 	else if (remaining > 0)
 	{
 		last_buf = g_slice_alloc0(remaining);
 	}
+
 	j_batch_execute(sub_batch);
 	for (guint64 chunk = 0; chunk < chunks; chunk++)
 	{
@@ -584,7 +594,6 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 			EVP_DigestUpdate(mdctx, (const gchar*)data + chunk * item->chunk_size, item->chunk_size);
 		}
 		EVP_DigestFinal_ex(mdctx, hash, &md_len);
-		chunk_obj = j_distributed_object_new("chunks", (const gchar*)hash, item->distribution);
 		chunk_kv = j_kv_new("chunk_refs", (const gchar*)hash);
 		//ref_bson = bson_new();
 		// puh, hier vielleicht doch mit callback arbeiten weil ich ja
@@ -594,30 +603,40 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		//j_kv_get(chunk_kv, ref_bson, batch); // yay batching
 		j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, sub_batch);
 		j_batch_execute(sub_batch);
+		
+
 		if (refcount == 0)
 		{
 			guint64 chunk_bytes_written = 0;
+			chunk_obj = j_distributed_object_new("chunks", (const gchar*)hash, item->distribution);
 			j_distributed_object_create(chunk_obj, batch);
 
 			if (chunk == 0)
 			{
-				j_distributed_object_write(chunk_obj, first_buf, chunk_offset, 0, &chunk_bytes_written, batch);
+				if(chunk_offset > 0) // Im "Idealfall" ist chunk_offset = 0, aber geht nicht wegen g_return_if_fail()
+					j_distributed_object_write(chunk_obj, first_buf, chunk_offset, 0, &chunk_bytes_written, batch);
 				j_distributed_object_write(chunk_obj, data, item->chunk_size - chunk_offset, chunk_offset, &chunk_bytes_written, batch);
+
 			}
 			else if (chunk == chunks -1)
 			{
 				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - remaining, 0, &chunk_bytes_written, batch);
-				j_distributed_object_write(chunk_obj, last_buf, remaining, item->chunk_size - remaining, &chunk_bytes_written, batch);
+				if(remaining > 0) // Gleicher Fall wie oben
+					j_distributed_object_write(chunk_obj, last_buf, remaining, item->chunk_size - remaining, &chunk_bytes_written, batch);
 			}
 			else
 			{
 				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size, 0, &chunk_bytes_written, batch);
 			}
 			*bytes_written += chunk_bytes_written;
+			// TODO: Test mit und ohne 
+			j_batch_execute(batch);
 		}
+		
 		new_ref_bson = bson_new();
 		bson_append_int32(new_ref_bson, "ref", -1, refcount+1);
 		j_kv_put(chunk_kv, new_ref_bson, sub_batch);
+		j_batch_execute(sub_batch);
 		// öh was passiert überhaupt bei put wenn es da schon was gibt?
 		// 	in LevelDB überschreibt neuer value den alten
 		// 	in LMDB per default wohl auch
@@ -653,6 +672,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 
 		// kann man einen bson_t nicht einfach modifizieren? :(
 	}
+
 	// for each chunk:
 	// 	calculate hash
 	// 	o_new(hash)
