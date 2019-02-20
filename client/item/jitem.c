@@ -392,7 +392,7 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 		printf("Read Hash: %s\n", hash);
 		chunk_obj = j_distributed_object_new("chunks", hash, item->distribution);
 		j_distributed_object_create(chunk_obj, batch);
-		j_distributed_object_read(chunk_obj, data, item->chunk_size, 0, bytes_read, batch);
+		j_distributed_object_read(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size, 0, bytes_read, batch);
 	}
 	//j_distributed_object_read(item->object, data, length, offset, bytes_read, batch);
 
@@ -651,7 +651,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 			{
 				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size, 0, &chunk_bytes_written, batch);
 			}
-			*bytes_written += chunk_bytes_written;
+			//*bytes_written += chunk_bytes_written;
 		}
 		
 		new_ref_bson = bson_new();
@@ -692,6 +692,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		}	
 
 		g_array_insert_val(item->hashes, chunk, hash);
+
 		//printf("hash'%s'\n", g_array_index(item->hashes, guchar*, chunk));
 		// kann man einen bson_t nicht einfach modifizieren? :(
 	}
@@ -880,12 +881,6 @@ j_item_new (JCollection* collection, gchar const* name, JDistribution* distribut
 	path = g_build_path("/", j_collection_get_name(item->collection), item->name, NULL);
 	item->kv = j_kv_new("items", path);
 	item->kv_h = j_kv_new("item_hashes", path);
-	//Test
-	JBatch* sub_batch = j_batch_new_for_template(J_SEMANTICS_TEMPLATE_DEFAULT);
-	bson_t *new_ref_bson = bson_new();
-	bson_append_int32(new_ref_bson, "ref", -1, 5);
-	j_kv_put(item->kv_h, new_ref_bson, sub_batch);
-	j_batch_execute(sub_batch);
 	
 	item->object = j_distributed_object_new("item", path, item->distribution);
 
