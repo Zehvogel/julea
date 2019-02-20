@@ -365,22 +365,36 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 	g_return_if_fail(bytes_read != NULL);
 
 	j_trace_enter(G_STRFUNC, NULL);
+	guint64 chunks, first_chunk;
 
-	bson_t b[1];
-
-	j_kv_get(item->kv_h, b, batch);
+	bson_t b;
+	bson_init (&b);
+	j_kv_get(item->kv_h, &b, batch);
 
 	// statt zeug hier im read zu machen die sachen beim get holen bzw beim
 	// new from bson
 
 	j_batch_execute(batch);
+	printf("Read Hashes Len %d\n",  item->hashes->len);
 
-	gchar* json = bson_as_canonical_extended_json(b, NULL);
+	gchar* json = bson_as_json (&b, NULL);
+	//gchar* json = bson_as_canonical_extended_json(b, NULL);
 	g_print("JSON read %s\n", json);
 	bson_free(json);
 	//j_item_deserialize_hashes(hashes, b);
 
-	j_distributed_object_read(item->object, data, length, offset, bytes_read, batch);
+	first_chunk = offset / item->chunk_size;
+	chunks = length / item->chunk_size;
+	JDistributedObject *chunk_obj;
+	for(guint64 chunk = first_chunk; chunk < first_chunk+chunks; chunk++)
+	{
+		const gchar* hash = g_array_index(item->hashes, guchar*, chunk);
+		printf("Read Hash: %s\n", hash);
+		chunk_obj = j_distributed_object_new("chunks", hash, item->distribution);
+		j_distributed_object_create(chunk_obj, batch);
+		j_distributed_object_read(chunk_obj, data, item->chunk_size, 0, bytes_read, batch);
+	}
+	//j_distributed_object_read(item->object, data, length, offset, bytes_read, batch);
 
 	j_trace_leave(G_STRFUNC);
 }
@@ -519,7 +533,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	JDistributedObject *first_obj, *last_obj, *chunk_obj;
 	JKV *chunk_kv;
 	bson_t *new_ref_bson;
- 	guchar hash[EVP_MAX_MD_SIZE];
+ 	guchar hash_gen[EVP_MAX_MD_SIZE];
  	guint md_len;
 	JBatch* sub_batch = j_batch_new(j_batch_get_semantics(batch));
  	EVP_MD_CTX *mdctx = EVP_MD_CTX_create();
@@ -544,7 +558,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	hashes = g_array_sized_new(FALSE, TRUE, hash_len, old_chunks);
 	g_array_insert_vals(hashes, 0, item->hashes->data, old_chunks * hash_len);
 
-
+	//g_array_set_size(item->hashes, chunks);
 	// get old_chunks:
 	// first_chunk if chunk_offset nonzero
 	// last_chunk if remaining is nonzero
@@ -593,7 +607,16 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		{
 			EVP_DigestUpdate(mdctx, (const gchar*)data + chunk * item->chunk_size, item->chunk_size);
 		}
-		EVP_DigestFinal_ex(mdctx, hash, &md_len);
+		EVP_DigestFinal_ex(mdctx, hash_gen, &md_len);
+
+		// Generate the usable hash
+		GString *hash_string = g_string_new (NULL);
+		for(unsigned int i = 0; i < md_len; i++){
+			g_string_append_printf(hash_string, "%02x", hash_gen[i]);
+		}
+		gchar* hash = hash_string->str;
+		printf("Write Hash: %s\n", hash);
+
 		chunk_kv = j_kv_new("chunk_refs", (const gchar*)hash);
 		//ref_bson = bson_new();
 		// puh, hier vielleicht doch mit callback arbeiten weil ich ja
@@ -629,8 +652,6 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size, 0, &chunk_bytes_written, batch);
 			}
 			*bytes_written += chunk_bytes_written;
-			// TODO: Test mit und ohne 
-			j_batch_execute(batch);
 		}
 		
 		new_ref_bson = bson_new();
@@ -666,12 +687,15 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 				}
 				g_array_remove_index(item->hashes, chunk);
 				//TODO: free old_hash
-				g_array_insert_val(item->hashes, chunk, hash);
+				//g_array_insert_val(item->hashes, chunk, hash); // Nach unten verschoben, da immer ausführen?
 			}
-		}
+		}	
 
+		g_array_insert_val(item->hashes, chunk, hash);
+		//printf("hash'%s'\n", g_array_index(item->hashes, guchar*, chunk));
 		// kann man einen bson_t nicht einfach modifizieren? :(
 	}
+	
 
 	// for each chunk:
 	// 	calculate hash
@@ -850,12 +874,19 @@ j_item_new (JCollection* collection, gchar const* name, JDistribution* distribut
 	item->collection = j_collection_ref(collection);
 	item->ref_count = 1;
 
-	item->hashes = g_array_new(FALSE, FALSE, 256);
+	item->hashes = g_array_new(FALSE, FALSE, sizeof(guchar*));
 	item->chunk_size = 8; // small size for testing only
 
 	path = g_build_path("/", j_collection_get_name(item->collection), item->name, NULL);
 	item->kv = j_kv_new("items", path);
 	item->kv_h = j_kv_new("item_hashes", path);
+	//Test
+	JBatch* sub_batch = j_batch_new_for_template(J_SEMANTICS_TEMPLATE_DEFAULT);
+	bson_t *new_ref_bson = bson_new();
+	bson_append_int32(new_ref_bson, "ref", -1, 5);
+	j_kv_put(item->kv_h, new_ref_bson, sub_batch);
+	j_batch_execute(sub_batch);
+	
 	item->object = j_distributed_object_new("item", path, item->distribution);
 
 end:

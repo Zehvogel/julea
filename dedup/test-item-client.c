@@ -16,7 +16,7 @@ test_item (void)
 		g_autoptr(JBatch) batch = NULL;
 		g_autoptr(JCollection) collection = NULL;
 		g_autoptr(JItem) item = NULL;
-		const char data[] = "1234567"; //test-data-12345
+		const char data[] = "123456712345678"; //test-data-12345
 		char data2[sizeof(data)];
 		guint64 bytes_written = 0;
 		guint64 bytes_read = 0;
