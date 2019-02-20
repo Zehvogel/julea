@@ -365,7 +365,7 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 	g_return_if_fail(bytes_read != NULL);
 
 	j_trace_enter(G_STRFUNC, NULL);
-	guint64 chunks, first_chunk;
+	guint64 chunks, first_chunk, last_chunk;
 
 	bson_t b;
 	bson_init (&b);
@@ -385,14 +385,16 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 
 	first_chunk = offset / item->chunk_size;
 	chunks = length / item->chunk_size;
+	
+
 	JDistributedObject *chunk_obj;
-	for(guint64 chunk = first_chunk; chunk < first_chunk+chunks; chunk++)
+	for(guint64 chunk = first_chunk; chunk < chunks; chunk++)
 	{
 		const gchar* hash = g_array_index(item->hashes, guchar*, chunk);
 		printf("Read Hash: %s\n", hash);
 		chunk_obj = j_distributed_object_new("chunks", hash, item->distribution);
 		j_distributed_object_create(chunk_obj, batch);
-		j_distributed_object_read(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size, 0, bytes_read, batch);
+		j_distributed_object_read(chunk_obj, (const gchar*)data + chunk * item->chunk_size - first_chunk*item->chunk_size, item->chunk_size, 0, bytes_read, batch);
 	}
 	//j_distributed_object_read(item->object, data, length, offset, bytes_read, batch);
 
