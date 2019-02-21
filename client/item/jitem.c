@@ -360,32 +360,21 @@ j_item_delete (JItem* item, JBatch* batch)
 void
 j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64* bytes_read, JBatch* batch)
 {
+	guint64 chunks, first_chunk;
+	JDistributedObject *chunk_obj;
+
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(data != NULL);
 	g_return_if_fail(bytes_read != NULL);
 
 	j_trace_enter(G_STRFUNC, NULL);
-	guint64 chunks, first_chunk;
 
-	bson_t b;
-	bson_init (&b);
-	j_kv_get(item->kv_h, &b, batch);
-
-	j_batch_execute(batch);
 	printf("Read Hashes Len %d\n",  item->hashes->len);
-
-	gchar* json = bson_as_json (&b, NULL);
-	//gchar* json = bson_as_canonical_extended_json(b, NULL);
-	g_print("JSON read %s\n", json);
-	bson_free(json);
-	//j_item_deserialize_hashes(hashes, b);
 
 	first_chunk = offset / item->chunk_size;
 	chunks = length / item->chunk_size;
 
-
-	JDistributedObject *chunk_obj;
-	for(guint64 chunk = first_chunk; chunk < chunks; chunk++)
+	for (guint64 chunk = first_chunk; chunk < chunks; chunk++)
 	{
 		const gchar* hash = g_array_index(item->hashes, gchar*, chunk);
 		printf("Read Hash: %s\n", hash);
@@ -393,7 +382,6 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 		j_distributed_object_create(chunk_obj, batch);
 		j_distributed_object_read(chunk_obj, (gchar*)data + chunk * item->chunk_size - first_chunk*item->chunk_size, item->chunk_size, 0, bytes_read, batch);
 	}
-	//j_distributed_object_read(item->object, data, length, offset, bytes_read, batch);
 
 	j_trace_leave(G_STRFUNC);
 }
@@ -520,12 +508,6 @@ j_item_hash_ref_callback (bson_t const* value, gpointer data_)
 void
 j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, guint64* bytes_written, JBatch* batch)
 {
-	g_return_if_fail(item != NULL);
-	g_return_if_fail(data != NULL);
-	g_return_if_fail(bytes_written != NULL);
-
-	j_trace_enter(G_STRFUNC, NULL);
-
 	guint64 first_chunk, chunk_offset, chunks, old_chunks, hash_len, remaining, bytes_read;
 	GArray* hashes;
 	gpointer first_buf, last_buf; // was wohl der type von last_buf ist :thinking:
@@ -534,8 +516,17 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	bson_t *new_ref_bson;
  	guchar hash_gen[EVP_MAX_MD_SIZE];
  	guint md_len;
-	JBatch* sub_batch = j_batch_new(j_batch_get_semantics(batch));
- 	EVP_MD_CTX *mdctx = EVP_MD_CTX_create();
+	JBatch* sub_batch;
+	EVP_MD_CTX *mdctx;
+
+	g_return_if_fail(item != NULL);
+	g_return_if_fail(data != NULL);
+	g_return_if_fail(bytes_written != NULL);
+
+	j_trace_enter(G_STRFUNC, NULL);
+
+	sub_batch = j_batch_new(j_batch_get_semantics(batch));
+ 	mdctx = EVP_MD_CTX_create();
 
 	// needs to be modified for non static hashing
 	first_chunk = offset / item->chunk_size;
@@ -590,6 +581,8 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	j_batch_execute(sub_batch);
 	for (guint64 chunk = 0; chunk < chunks; chunk++)
 	{
+		GString *hash_string = g_string_new (NULL);
+		gchar* hash;
 		guint32 refcount = 0;
 		EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
 		if (chunk == 0)
@@ -609,11 +602,10 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		EVP_DigestFinal_ex(mdctx, hash_gen, &md_len);
 
 		// Generate the usable hash
-		GString *hash_string = g_string_new (NULL);
 		for(unsigned int i = 0; i < md_len; i++){
 			g_string_append_printf(hash_string, "%02x", hash_gen[i]);
 		}
-		gchar* hash = hash_string->str;
+		hash = hash_string->str;
 		printf("Write Hash: %s\n", hash);
 
 		chunk_kv = j_kv_new("chunk_refs", (const gchar*)hash);
