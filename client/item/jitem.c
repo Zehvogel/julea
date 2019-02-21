@@ -365,7 +365,7 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 	g_return_if_fail(bytes_read != NULL);
 
 	j_trace_enter(G_STRFUNC, NULL);
-	guint64 chunks, first_chunk, last_chunk;
+	guint64 chunks, first_chunk;
 
 	bson_t b;
 	bson_init (&b);
@@ -615,7 +615,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		GString *hash_string = g_string_new (NULL);
 		for(unsigned int i = 0; i < md_len; i++){
 			g_string_append_printf(hash_string, "%02x", hash_gen[i]);
-		}
+		}		
 		gchar* hash = hash_string->str;
 		printf("Write Hash: %s\n", hash);
 
@@ -698,8 +698,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		//printf("hash'%s'\n", g_array_index(item->hashes, guchar*, chunk));
 		// kann man einen bson_t nicht einfach modifizieren? :(
 	}
-	
-
+	EVP_MD_CTX_destroy(mdctx);
 	// for each chunk:
 	// 	calculate hash
 	// 	o_new(hash)
