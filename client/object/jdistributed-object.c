@@ -957,7 +957,7 @@ j_distributed_object_write_exec (JList* operations, JSemantics* semantics)
 				j_message_append_8(messages[index], &new_offset);
 				j_message_add_send(messages[index], new_data, new_length);
 
-				//j_list_append(bw_lists[index], bytes_written);
+				j_list_append(bw_lists[index], bytes_written);
 
 				/*
 				if (lock != NULL)
@@ -1395,7 +1395,8 @@ j_distributed_object_write (JDistributedObject* object, gconstpointer data, guin
 	operation->exec_func = j_distributed_object_write_exec;
 	operation->free_func = j_distributed_object_write_free;
 
-	*bytes_written = 0;
+	// TODO: discuss
+	//*bytes_written = 0;
 
 	j_batch_add(batch, operation);
 

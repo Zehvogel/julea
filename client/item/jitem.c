@@ -371,9 +371,6 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 	bson_init (&b);
 	j_kv_get(item->kv_h, &b, batch);
 
-	// statt zeug hier im read zu machen die sachen beim get holen bzw beim
-	// new from bson
-
 	j_batch_execute(batch);
 	printf("Read Hashes Len %d\n",  item->hashes->len);
 
@@ -385,16 +382,16 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 
 	first_chunk = offset / item->chunk_size;
 	chunks = length / item->chunk_size;
-	
+
 
 	JDistributedObject *chunk_obj;
 	for(guint64 chunk = first_chunk; chunk < chunks; chunk++)
 	{
-		const gchar* hash = g_array_index(item->hashes, guchar*, chunk);
+		const gchar* hash = g_array_index(item->hashes, gchar*, chunk);
 		printf("Read Hash: %s\n", hash);
 		chunk_obj = j_distributed_object_new("chunks", hash, item->distribution);
 		j_distributed_object_create(chunk_obj, batch);
-		j_distributed_object_read(chunk_obj, (const gchar*)data + chunk * item->chunk_size - first_chunk*item->chunk_size, item->chunk_size, 0, bytes_read, batch);
+		j_distributed_object_read(chunk_obj, (gchar*)data + chunk * item->chunk_size - first_chunk*item->chunk_size, item->chunk_size, 0, bytes_read, batch);
 	}
 	//j_distributed_object_read(item->object, data, length, offset, bytes_read, batch);
 
@@ -529,7 +526,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 
 	j_trace_enter(G_STRFUNC, NULL);
 
-	guint64 first_chunk, chunk_offset, chunks, old_chunks, hash_len, last_chunk, remaining, bytes_read;
+	guint64 first_chunk, chunk_offset, chunks, old_chunks, hash_len, remaining, bytes_read;
 	GArray* hashes;
 	gpointer first_buf, last_buf; // was wohl der type von last_buf ist :thinking:
 	JDistributedObject *first_obj, *last_obj, *chunk_obj;
@@ -615,7 +612,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		GString *hash_string = g_string_new (NULL);
 		for(unsigned int i = 0; i < md_len; i++){
 			g_string_append_printf(hash_string, "%02x", hash_gen[i]);
-		}		
+		}
 		gchar* hash = hash_string->str;
 		printf("Write Hash: %s\n", hash);
 
@@ -628,34 +625,32 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		//j_kv_get(chunk_kv, ref_bson, batch); // yay batching
 		j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, sub_batch);
 		j_batch_execute(sub_batch);
-		
+
 
 		if (refcount == 0)
 		{
-			guint64 chunk_bytes_written = 0;
 			chunk_obj = j_distributed_object_new("chunks", (const gchar*)hash, item->distribution);
 			j_distributed_object_create(chunk_obj, batch);
 
 			if (chunk == 0)
 			{
 				if(chunk_offset > 0) // Im "Idealfall" ist chunk_offset = 0, aber geht nicht wegen g_return_if_fail()
-					j_distributed_object_write(chunk_obj, first_buf, chunk_offset, 0, &chunk_bytes_written, batch);
-				j_distributed_object_write(chunk_obj, data, item->chunk_size - chunk_offset, chunk_offset, &chunk_bytes_written, batch);
+					j_distributed_object_write(chunk_obj, first_buf, chunk_offset, 0, bytes_written, batch);
+				j_distributed_object_write(chunk_obj, data, item->chunk_size - chunk_offset, chunk_offset, bytes_written, batch);
 
 			}
 			else if (chunk == chunks -1)
 			{
-				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - remaining, 0, &chunk_bytes_written, batch);
+				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - remaining, 0, bytes_written, batch);
 				if(remaining > 0) // Gleicher Fall wie oben
-					j_distributed_object_write(chunk_obj, last_buf, remaining, item->chunk_size - remaining, &chunk_bytes_written, batch);
+					j_distributed_object_write(chunk_obj, last_buf, remaining, item->chunk_size - remaining, bytes_written, batch);
 			}
 			else
 			{
-				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size, 0, &chunk_bytes_written, batch);
+				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size, 0, bytes_written, batch);
 			}
-			//*bytes_written += chunk_bytes_written;
 		}
-		
+
 		new_ref_bson = bson_new();
 		bson_append_int32(new_ref_bson, "ref", -1, refcount+1);
 		j_kv_put(chunk_kv, new_ref_bson, sub_batch);
@@ -691,7 +686,7 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 				//TODO: free old_hash
 				//g_array_insert_val(item->hashes, chunk, hash); // Nach unten verschoben, da immer ausführen?
 			}
-		}	
+		}
 
 		g_array_insert_val(item->hashes, chunk, hash);
 
