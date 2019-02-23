@@ -40,6 +40,7 @@
 #include <julea-object.h>
 
 #include <openssl/evp.h>
+#include <math.h>
 
 /**
  * \defgroup JItem Item
@@ -360,7 +361,7 @@ j_item_delete (JItem* item, JBatch* batch)
 void
 j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64* bytes_read, JBatch* batch)
 {
-	guint64 chunks, first_chunk;
+	guint64 chunks, first_chunk, destination_relative;
 	JDistributedObject *chunk_obj;
 
 	g_return_if_fail(item != NULL);
@@ -369,18 +370,34 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 
 	j_trace_enter(G_STRFUNC, NULL);
 
-	printf("Read Hashes Len %d\n",  item->hashes->len);
-
 	first_chunk = offset / item->chunk_size;
-	chunks = length / item->chunk_size;
+	chunks = ceil((gdouble)(length+offset) / (gdouble)item->chunk_size);
+	destination_relative = 0;
 
 	for (guint64 chunk = first_chunk; chunk < chunks; chunk++)
 	{
+		guint64 from, to, part;
 		const gchar* hash = g_array_index(item->hashes, gchar*, chunk);
 		printf("Read Hash: %s\n", hash);
 		chunk_obj = j_distributed_object_new("chunks", hash, item->distribution);
 		j_distributed_object_create(chunk_obj, batch);
-		j_distributed_object_read(chunk_obj, (gchar*)data + chunk * item->chunk_size - first_chunk*item->chunk_size, item->chunk_size, 0, bytes_read, batch);
+		from = 0;
+		to = item->chunk_size;
+
+		if(chunk == first_chunk){
+			from = offset;
+		}
+
+		if(chunk == chunks - 1){
+			to = item->chunk_size - (chunks * item->chunk_size - offset - length);
+			if(to <= 0){
+				to = item->chunk_size;
+			}
+		}
+		part = to - from;
+		printf("From: %ld | To: %ld | Length: %ld\n", from, to, part);
+		j_distributed_object_read(chunk_obj, (gchar*)data + destination_relative, part, from, bytes_read, batch);
+		destination_relative += part;
 	}
 
 	j_trace_leave(G_STRFUNC);

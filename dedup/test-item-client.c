@@ -32,7 +32,7 @@ test_item (void)
 		j_item_write(item, &data, sizeof(data)-1, 0, &bytes_written, batch);
 		j_batch_execute(batch);
 		printf("bytes_written: %lu\n", bytes_written);
-		j_item_read(item, data2, sizeof(data2)-1, 0, &bytes_read, batch);
+		j_item_read(item, data2, 8, 2, &bytes_read, batch);
 		j_batch_execute(batch);
 		data2[sizeof(data)-1] = '\0';
 		printf("bytes_read: %lu\n", bytes_read);
@@ -49,5 +49,5 @@ main (int argc, char** argv)
 	(void) argv;
 
 	test_item();
-	printf("teeest\n");
+	printf("teeeest\n");
 }
