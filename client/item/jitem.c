@@ -40,7 +40,6 @@
 #include <julea-object.h>
 
 #include <openssl/evp.h>
-#include <math.h>
 
 /**
  * \defgroup JItem Item
@@ -181,11 +180,6 @@ j_item_unref (JItem* item)
 			j_kv_unref(item->kv_h);
 		}
 
-		if (item->object != NULL)
-		{
-			j_distributed_object_unref(item->object);
-		}
-
 		if (item->collection != NULL)
 		{
 			j_collection_unref(item->collection);
@@ -258,7 +252,6 @@ j_item_create (JCollection* collection, gchar const* name, JDistribution* distri
 
 	value = j_item_serialize(item, j_batch_get_semantics(batch));
 
-	j_distributed_object_create(item->object, batch);
 	j_kv_put(item->kv, value, batch);
 
 end:
@@ -338,7 +331,46 @@ j_item_delete (JItem* item, JBatch* batch)
 
 	j_kv_delete(item->kv, batch);
 	j_kv_delete(item->kv_h, batch);
-	j_distributed_object_delete(item->object, batch);
+	// TODO: 'unref' each chunk
+
+	j_trace_leave(G_STRFUNC);
+}
+
+static
+void
+j_item_deserialize_hashes (JItem* item, bson_t const* b)
+{
+	bson_iter_t iter;
+
+	guint len = 0;
+	g_return_if_fail(item != NULL);
+	g_return_if_fail(b != NULL);
+
+	j_trace_enter(G_STRFUNC, NULL);
+
+	bson_iter_init_find(&iter, b, "len");
+	if (BSON_ITER_HOLDS_INT64(&iter))
+		len = bson_iter_int64(&iter);
+	else
+		g_print("len was not an int64\n");
+
+	for (guint i = 0; i < len; i++)
+	{
+		gchar* key = g_strdup_printf("%d", i);
+		bson_iter_find(&iter, key);
+		g_free(key);
+		if (BSON_ITER_HOLDS_UTF8(&iter))
+		{
+			guint slen  = 0;
+			const gchar* ohash = bson_iter_utf8(&iter, &slen);
+			gchar* hash = g_strndup(ohash, slen);
+			g_array_insert_val(item->hashes, i, hash);
+		}
+		else
+		{
+			g_print("hash #%d was not a string\n", i);
+		}
+	}
 
 	j_trace_leave(G_STRFUNC);
 }
@@ -364,14 +396,26 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 	guint64 chunks, first_chunk, destination_relative;
 	JDistributedObject *chunk_obj;
 
+	JBatch* sub_batch = j_batch_new(j_batch_get_semantics(batch));
+	bson_t* b = bson_new();
+
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(data != NULL);
 	g_return_if_fail(bytes_read != NULL);
 
 	j_trace_enter(G_STRFUNC, NULL);
 
+	j_kv_get(item->kv_h, b, sub_batch);
+	j_batch_execute(sub_batch);
+
+	gchar* json = bson_as_canonical_extended_json(b, NULL);
+	g_print("JSON read %s\n", json);
+	bson_free(json);
+
+	j_item_deserialize_hashes(item, b);
+
 	first_chunk = offset / item->chunk_size;
-	chunks = ceil((gdouble)(length+offset) / (gdouble)item->chunk_size);
+	chunks = (length+offset) / item->chunk_size + 1;
 	destination_relative = 0;
 
 	for (guint64 chunk = first_chunk; chunk < chunks; chunk++)
@@ -403,96 +447,34 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 	j_trace_leave(G_STRFUNC);
 }
 
+static
+bson_t*
+j_item_serialize_hashes (JItem* item)
+{
+	bson_t* b;
 
-// bson_t*
-// j_item_serialize_hashes (JItemHashes* hashes)
-// {
-// 	bson_t* b;
-// 
-// 	g_return_val_if_fail(hashes != NULL, NULL);
-// 
-// 	j_trace_enter(G_STRFUNC, NULL);
-// 
-// 	b = bson_new();
-// 
-// 	g_print("md_len: %lu\n", hashes->hash_len);
-// 	g_print("num_hashes: %lu\n", hashes->hash_cnt);
-// 
-// 	BSON_APPEND_INT64(b, "md_len", hashes->hash_len);
-// 	BSON_APPEND_INT64(b, "num_hashes", hashes->hash_cnt);
-// 
-// 	bson_t b_document;
-// 
-// //	bson_append_document_begin(b, "hashes", -1, &b_document);
-// 
-// 	//for (int i = 0; i < hashes->hash_cnt; i++)
-// 	//	bson_append_utf8(&b_document, g_strdup_printf("%d", i), -1, (const gchar*)(hashes->hashes + i * hashes->hash_len), hashes->hash_len);
-// 
-// 	//bson_append_document_end(b, &b_document);
-// 
-// 	//bson_destroy(b_document);
-// 
-// 
-// 	//bson_finish(b);
-// 
-// 
-// 	j_trace_leave(G_STRFUNC);
-// 
-// 	return b;
-// }
-// 
-// void
-// j_item_deserialize_hashes (JItemHashes* hashes, bson_t const* b)
-// {
-// 	bson_iter_t iterator;
-// 	bson_iter_t hash_iterator;
-// 
-// 	g_return_if_fail(hashes != NULL);
-// 	g_return_if_fail(b != NULL);
-// 
-// 	j_trace_enter(G_STRFUNC, NULL);
-// 
-// 	bson_iter_init(&iterator, b);
-// 
-// 	while (bson_iter_next(&iterator))
-// 	{
-// 		gchar const* key;
-// 
-// 		key = bson_iter_key(&iterator);
-// 
-// 		if (g_strcmp0(key, "md_len") == 0 && BSON_ITER_HOLDS_INT64(&iterator))
-// 		{
-// 			hashes->hash_len = bson_iter_int64(&iterator);
-// 		}
-// 		else if (g_strcmp0(key, "num_hashes") == 0 && BSON_ITER_HOLDS_INT64(&iterator))
-// 		{
-// 			hashes->hash_cnt = bson_iter_int64(&iterator);
-// 		}
-// 		else if (g_strcmp0(key, "hashes") == 0 && BSON_ITER_HOLDS_DOCUMENT(&iterator))
-// 		{
-// 			const guint8* data;
-// 			guint32 length;
-// 
-// 			bson_iter_document(&iterator, &length, &data);
-// 			bson_iter_init_from_data(&hash_iterator, data, length);
-// 
-// 		}
-// 	}
-// 	hashes->hashes = g_slice_alloc(hashes->hash_cnt * hashes->hash_len);
-// 	guint64 i = 0;
-// 	while (bson_iter_next(&hash_iterator))
-// 	{
-// 		if (BSON_ITER_HOLDS_UTF8(&hash_iterator))
-// 		{
-// 			printf("i: %lu\n", i);
-// 			//FIXME: use g_strdup
-// 			g_stpcpy((gchar*) &hashes->hashes[i*hashes->hash_len], bson_iter_utf8(&hash_iterator, NULL /*FIXME*/));
-// 			i++;
-// 		}
-// 	}
-// 
-// 	j_trace_leave(G_STRFUNC);
-// }
+	g_return_val_if_fail(item != NULL, NULL);
+
+	j_trace_enter(G_STRFUNC, NULL);
+
+	b = bson_new();
+
+	bson_append_int64(b, "len", -1, item->hashes->len);
+
+	for (guint i = 0; i < item->hashes->len; i++)
+	{
+		gchar* key = g_strdup_printf("%d", i);
+		bson_append_utf8(b, key, -1, g_array_index(item->hashes, gchar*, i), 64);
+		g_free(key);
+	}
+	gchar* json = bson_as_canonical_extended_json(b, NULL);
+	g_print("JSON read %s\n", json);
+	bson_free(json);
+
+	j_trace_leave(G_STRFUNC);
+
+	return b;
+}
 
 static
 void
@@ -664,10 +646,6 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		bson_append_int32(new_ref_bson, "ref", -1, refcount+1);
 		j_kv_put(chunk_kv, new_ref_bson, sub_batch);
 		j_batch_execute(sub_batch);
-		// öh was passiert überhaupt bei put wenn es da schon was gibt?
-		// 	in LevelDB überschreibt neuer value den alten
-		// 	in LMDB per default wohl auch
-		// 	MongoDB backend benutzt eh replace statt insert
 
 		if (chunk < old_chunks)
 		{
@@ -699,32 +677,13 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 
 		g_array_insert_val(item->hashes, chunk, hash);
 
-		//printf("hash'%s'\n", g_array_index(item->hashes, guchar*, chunk));
-		// kann man einen bson_t nicht einfach modifizieren? :(
 	}
 	EVP_MD_CTX_destroy(mdctx);
-	// for each chunk:
-	// 	calculate hash
-	// 	o_new(hash)
-	// 	okv_check_and_ref(hash)
-	// 		get from kv if hash exists
-	// 			if not o_create(hash)
-	// 		okv_ref(hash)
-	// 	o_write(chunk)
-	// for each old_chunk:
-	// 	okv_unref(hashes[old_chunk])
 
-// 	// evtl ins item struct auslagern
-// 
-// 	EVP_MD_CTX_destroy(mdctx);
-// 	printf("write: hash is: ");
-// 	for(unsigned int i = 0; i < md_len; i++)
-// 		printf("%02x", hash[i]);
-// 	printf("\n");
-// 
-// 
-// 	// FIXME see j_item_write_exec
-// 	j_distributed_object_write(item->object, data, length, offset, bytes_written, batch);
+	j_kv_delete(item->kv_h, sub_batch);
+	j_kv_put(item->kv_h, j_item_serialize_hashes(item), sub_batch);
+	j_batch_execute(sub_batch);
+
 
 	j_trace_leave(G_STRFUNC);
 }
@@ -747,8 +706,8 @@ j_item_get_status (JItem* item, JBatch* batch)
 
 	j_trace_enter(G_STRFUNC, NULL);
 
-	// FIXME check j_item_get_status_exec
-	j_distributed_object_status(item->object, &(item->status.modification_time), &(item->status.size), batch);
+	// TODO: find a meaningful way to do this for chunks
+	// j_distributed_object_status(item->object, &(item->status.modification_time), &(item->status.size), batch);
 
 	j_trace_leave(G_STRFUNC);
 }
@@ -886,8 +845,6 @@ j_item_new (JCollection* collection, gchar const* name, JDistribution* distribut
 	path = g_build_path("/", j_collection_get_name(item->collection), item->name, NULL);
 	item->kv = j_kv_new("items", path);
 	item->kv_h = j_kv_new("item_hashes", path);
-	
-	item->object = j_distributed_object_new("item", path, item->distribution);
 
 end:
 	j_trace_leave(G_STRFUNC);
@@ -935,7 +892,7 @@ j_item_new_from_bson (JCollection* collection, bson_t const* b)
 
 	path = g_build_path("/", j_collection_get_name(item->collection), item->name, NULL);
 	item->kv = j_kv_new("items", path);
-	item->object = j_distributed_object_new("item", path, item->distribution);
+	item->kv_h = j_kv_new("item_hashes", path);
 
 	j_trace_leave(G_STRFUNC);
 
