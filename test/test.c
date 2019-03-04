@@ -47,6 +47,7 @@ main (int argc, char** argv)
 	// Item client
 	test_collection();
 	test_item();
+	test_item_dedup();
 	test_uri();
 
 	ret = g_test_run();

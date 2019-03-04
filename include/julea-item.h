@@ -26,6 +26,8 @@
 #include <item/jcollection.h>
 #include <item/jcollection-iterator.h>
 #include <item/jitem.h>
+#include <item/jitem-dedup.h>
+
 #include <item/jitem-iterator.h>
 #include <item/juri.h>
 
