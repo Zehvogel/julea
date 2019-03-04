@@ -33,6 +33,7 @@ void test_semantics (void);
 
 void test_collection (void);
 void test_item (void);
+void test_item_dedup (void);
 void test_uri (void);
 
 #endif
