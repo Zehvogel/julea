@@ -309,6 +309,51 @@ j_item_get (JCollection* collection, JItem** item, gchar const* name, JBatch* ba
 	j_trace_leave(G_STRFUNC);
 }
 
+static
+void
+j_item_hash_ref_callback (bson_t const* value, gpointer data_)
+{
+	bson_iter_t iter;
+	guint32* refcount = data_;
+
+	if (bson_iter_init_find(&iter, value, "ref"))
+		*refcount = (guint32)bson_iter_int32(&iter);
+}
+
+//TODO should only be called with chunk_lock held but chunk_lock not
+//implemented yet
+static
+void
+j_item_unref_chunk (JItem* item, gchar* hash, JBatch* batch)
+{
+	JKV* chunk_kv;
+	JDistributedObject* chunk_obj;
+	guint64 refcount = 0;
+	JBatch* sub_batch = j_batch_new(j_batch_get_semantics(batch));
+	bson_t* new_ref_bson = bson_new();
+
+	chunk_kv = j_kv_new("chunk_refs", (const gchar*)hash);
+	j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, sub_batch);
+	j_batch_execute(sub_batch);
+
+	refcount -= 1;
+
+	if (refcount > 0)
+	{
+		new_ref_bson = bson_new();
+		bson_append_int32(new_ref_bson, "ref", -1, refcount);
+		j_kv_put(chunk_kv, new_ref_bson, sub_batch);
+		j_batch_execute(sub_batch);
+	}
+	else
+	{
+		j_kv_delete(chunk_kv, batch);
+		chunk_obj = j_distributed_object_new("chunks", (const gchar*)hash, item->distribution);
+		j_distributed_object_delete(chunk_obj, batch);
+		j_distributed_object_unref(chunk_obj);
+	}
+}
+
 /**
  * Deletes an item from a collection.
  *
@@ -331,12 +376,46 @@ j_item_delete (JItem* item, JBatch* batch)
 
 	j_kv_delete(item->kv, batch);
 	j_kv_delete(item->kv_h, batch);
-	// TODO: 'unref' each chunk
+
+	for (guint64 i = 0; i < item->hashes->len; i++)
+	{
+		gchar* hash = g_array_index(item->hashes, gchar*, i);
+		j_item_unref_chunk(item, hash, batch);
+		g_array_remove_index(item->hashes, i);
+		g_free(hash);
+	}
 
 	j_trace_leave(G_STRFUNC);
 }
 
-static
+bson_t*
+j_item_serialize_hashes (JItem* item)
+{
+	bson_t* b;
+
+	g_return_val_if_fail(item != NULL, NULL);
+
+	j_trace_enter(G_STRFUNC, NULL);
+
+	b = bson_new();
+
+	bson_append_int64(b, "len", -1, item->hashes->len);
+
+	for (guint i = 0; i < item->hashes->len; i++)
+	{
+		gchar* key = g_strdup_printf("%d", i);
+		bson_append_utf8(b, key, -1, g_array_index(item->hashes, gchar*, i), 64);
+		g_free(key);
+	}
+	gchar* json = bson_as_canonical_extended_json(b, NULL);
+	g_print("JSON read %s\n", json);
+	bson_free(json);
+
+	j_trace_leave(G_STRFUNC);
+
+	return b;
+}
+
 void
 j_item_deserialize_hashes (JItem* item, bson_t const* b)
 {
@@ -375,6 +454,27 @@ j_item_deserialize_hashes (JItem* item, bson_t const* b)
 	j_trace_leave(G_STRFUNC);
 }
 
+void
+j_item_refresh_hashes (JItem* item, JSemantics* semantics)
+{
+	gchar* json;
+	JBatch* sub_batch = j_batch_new(semantics);
+	bson_t* b = bson_new();
+
+	j_kv_get(item->kv_h, b, sub_batch);
+	j_batch_execute(sub_batch);
+
+	json = bson_as_canonical_extended_json(b, NULL);
+	g_print("JSON refreshed %s\n", json);
+	bson_free(json);
+
+	// apparently an empty bson has len == 5
+	if (b->len > 5)
+		j_item_deserialize_hashes(item, b);
+
+	bson_free(b);
+}
+
 /**
  * Reads an item.
  *
@@ -396,27 +496,17 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 	guint64 chunks, first_chunk, destination_relative;
 	JDistributedObject *chunk_obj;
 
-	JBatch* sub_batch = j_batch_new(j_batch_get_semantics(batch));
-	bson_t* b = bson_new();
-
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(data != NULL);
 	g_return_if_fail(bytes_read != NULL);
 
 	j_trace_enter(G_STRFUNC, NULL);
 
-	j_kv_get(item->kv_h, b, sub_batch);
-	j_batch_execute(sub_batch);
-
-	gchar* json = bson_as_canonical_extended_json(b, NULL);
-	g_print("JSON read %s\n", json);
-	bson_free(json);
-
-	j_item_deserialize_hashes(item, b);
-
 	first_chunk = offset / item->chunk_size;
 	chunks = (length+offset) / item->chunk_size + 1;
 	destination_relative = 0;
+
+	j_item_refresh_hashes(item, j_batch_get_semantics(batch));
 
 	for (guint64 chunk = first_chunk; chunk < chunks; chunk++)
 	{
@@ -447,45 +537,6 @@ j_item_read (JItem* item, gpointer data, guint64 length, guint64 offset, guint64
 	j_trace_leave(G_STRFUNC);
 }
 
-static
-bson_t*
-j_item_serialize_hashes (JItem* item)
-{
-	bson_t* b;
-
-	g_return_val_if_fail(item != NULL, NULL);
-
-	j_trace_enter(G_STRFUNC, NULL);
-
-	b = bson_new();
-
-	bson_append_int64(b, "len", -1, item->hashes->len);
-
-	for (guint i = 0; i < item->hashes->len; i++)
-	{
-		gchar* key = g_strdup_printf("%d", i);
-		bson_append_utf8(b, key, -1, g_array_index(item->hashes, gchar*, i), 64);
-		g_free(key);
-	}
-	gchar* json = bson_as_canonical_extended_json(b, NULL);
-	g_print("JSON read %s\n", json);
-	bson_free(json);
-
-	j_trace_leave(G_STRFUNC);
-
-	return b;
-}
-
-static
-void
-j_item_hash_ref_callback (bson_t const* value, gpointer data_)
-{
-	bson_iter_t iter;
-	guint32* refcount = data_;
-
-	if (bson_iter_init_find(&iter, value, "ref"))
-		*refcount = (guint32)bson_iter_int32(&iter);
-}
 /**
  * Writes an item.
  *
@@ -524,8 +575,8 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 
 	j_trace_enter(G_STRFUNC, NULL);
 
-	sub_batch = j_batch_new(j_batch_get_semantics(batch));
- 	mdctx = EVP_MD_CTX_create();
+	// refresh chunks before write
+	j_item_refresh_hashes(item, j_batch_get_semantics(batch));
 
 	// needs to be modified for non static hashing
 	first_chunk = offset / item->chunk_size;
@@ -547,7 +598,8 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	hashes = g_array_sized_new(FALSE, TRUE, hash_len, old_chunks);
 	g_array_insert_vals(hashes, 0, item->hashes->data, old_chunks * hash_len);
 
-	//g_array_set_size(item->hashes, chunks);
+	sub_batch = j_batch_new(j_batch_get_semantics(batch));
+
 	// get old_chunks:
 	// first_chunk if chunk_offset nonzero
 	// last_chunk if remaining is nonzero
@@ -578,6 +630,8 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	}
 
 	j_batch_execute(sub_batch);
+ 	mdctx = EVP_MD_CTX_create();
+
 	for (guint64 chunk = 0; chunk < chunks; chunk++)
 	{
 		GString *hash_string = g_string_new (NULL);
@@ -608,12 +662,6 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 		printf("Write Hash: %s\n", hash);
 
 		chunk_kv = j_kv_new("chunk_refs", (const gchar*)hash);
-		//ref_bson = bson_new();
-		// puh, hier vielleicht doch mit callback arbeiten weil ich ja
-		// keine ahnung hab wann ich den bson da aufräumen kann :/
-		// das könnte man sich alles sparen wenn objekte globalen
-		// refcount hätten...
-		//j_kv_get(chunk_kv, ref_bson, batch); // yay batching
 		j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, sub_batch);
 		j_batch_execute(sub_batch);
 
@@ -652,26 +700,9 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 			gchar* old_hash = g_array_index(item->hashes, gchar*, chunk);
 			if (g_strcmp0(old_hash, (gchar*)hash) != 0)
 			{
-				chunk_kv = j_kv_new("chunk_refs", (const gchar*)old_hash);
-				j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, sub_batch);
-				j_batch_execute(sub_batch);
-				refcount -= 1;
-				if (refcount > 0)
-				{
-					new_ref_bson = bson_new();
-					bson_append_int32(new_ref_bson, "ref", -1, refcount);
-					j_kv_put(chunk_kv, new_ref_bson, batch);
-				}
-				else
-				{
-					j_kv_delete(chunk_kv, batch);
-					chunk_obj = j_distributed_object_new("chunks", (const gchar*)old_hash, item->distribution);
-					j_distributed_object_delete(chunk_obj, batch);
-					j_distributed_object_unref(chunk_obj);
-				}
+				j_item_unref_chunk(item, old_hash, batch);
 				g_array_remove_index(item->hashes, chunk);
-				//TODO: free old_hash
-				//g_array_insert_val(item->hashes, chunk, hash); // Nach unten verschoben, da immer ausführen?
+				g_free(old_hash);
 			}
 		}
 
@@ -683,7 +714,6 @@ j_item_write (JItem* item, gconstpointer data, guint64 length, guint64 offset, g
 	j_kv_delete(item->kv_h, sub_batch);
 	j_kv_put(item->kv_h, j_item_serialize_hashes(item), sub_batch);
 	j_batch_execute(sub_batch);
-
 
 	j_trace_leave(G_STRFUNC);
 }
@@ -708,6 +738,7 @@ j_item_get_status (JItem* item, JBatch* batch)
 
 	// TODO: find a meaningful way to do this for chunks
 	// j_distributed_object_status(item->object, &(item->status.modification_time), &(item->status.size), batch);
+	(void) batch;
 
 	j_trace_leave(G_STRFUNC);
 }
@@ -1195,110 +1226,3 @@ j_item_set_size (JItem* item, guint64 size)
 	item->status.size = size;
 	j_trace_leave(G_STRFUNC);
 }
-
-/*
-gboolean
-j_item_write_exec (JList* operations, JSemantics* semantics)
-{
-	if (j_semantics_get(semantics, J_SEMANTICS_CONCURRENCY) == J_SEMANTICS_CONCURRENCY_NONE && FALSE)
-	{
-		bson_t b_document[1];
-		bson_t cond[1];
-		bson_t op[1];
-		mongoc_client_t* mongo_connection;
-		mongoc_collection_t* mongo_collection;
-		mongoc_write_concern_t* write_concern;
-		gint ret;
-
-		j_helper_set_write_concern(write_concern, semantics);
-
-		bson_init(cond);
-		bson_append_oid(cond, "_id", -1, &(item->id));
-		bson_append_int32(cond, "Status.ModificationTime", -1, item->status.modification_time);
-		//bson_finish(cond);
-
-		j_item_set_modification_time(item, g_get_real_time());
-
-		bson_init(op);
-
-		bson_append_document_begin(op, "$set", -1, b_document);
-
-		if (max_offset > item->status.size)
-		{
-			j_item_set_size(item, max_offset);
-			bson_append_int64(b_document, "Status.Size", -1, item->status.size);
-		}
-
-		bson_append_int64(b_document, "Status.ModificationTime", -1, item->status.modification_time);
-		bson_append_document_end(op, b_document);
-
-		//bson_finish(op);
-
-		mongo_connection = j_connection_pool_pop_kv(0);
-		mongo_collection = mongoc_client_get_collection(mongo_connection, "JULEA", "Items");
-
-		ret = mongoc_collection_update(mongo_collection, MONGOC_UPDATE_NONE, cond, op, write_concern, NULL);
-
-		j_connection_pool_push_kv(0, mongo_connection);
-
-		if (!ret)
-		{
-
-		}
-
-		bson_destroy(cond);
-		bson_destroy(op);
-
-		mongoc_write_concern_destroy(write_concern);
-	}
-}
-*/
-
-/*
-gboolean
-j_item_get_status_exec (JList* operations, JSemantics* semantics)
-{
-	if (semantics_consistency != J_SEMANTICS_CONSISTENCY_IMMEDIATE)
-	{
-		if (item->status.age >= (guint64)g_get_real_time() - G_USEC_PER_SEC)
-		{
-			continue;
-		}
-	}
-
-	if (semantics_concurrency == J_SEMANTICS_CONCURRENCY_NONE)
-	{
-		bson_t result[1];
-		gchar* path;
-
-		bson_init(&opts);
-		bson_append_int32(&opts, "limit", -1, 1);
-		bson_append_document_begin(&opts, "projection", -1, &projection);
-
-		bson_append_bool(&projection, "Status.Size", -1, TRUE);
-		bson_append_bool(&projection, "Status.ModificationTime", -1, TRUE);
-
-		bson_append_document_end(&opts, &projection);
-
-		if (kv_backend != NULL)
-		{
-			path = g_build_path("/", j_collection_get_name(item->collection), item->name, NULL);
-			ret = j_backend_kv_get(kv_backend, "items", path, result) && ret;
-			g_free(path);
-		}
-
-		bson_init(&b);
-		bson_append_oid(&b, "_id", -1, &(item->id));
-
-		if (ret)
-		{
-			j_item_deserialize(item, result);
-			bson_destroy(result);
-		}
-	}
-}
-*/
-
-/**
- * @}
- **/
