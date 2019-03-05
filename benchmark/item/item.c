@@ -383,6 +383,7 @@ _benchmark_item_write (BenchmarkResult* result, gboolean use_batch, guint block_
 
 	for (guint i = 0; i < n; i++)
 	{
+		nb = 0;
 		j_item_write(item, &dummy, block_size, i * block_size, &nb, batch);
 
 		if (!use_batch)

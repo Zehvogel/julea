@@ -408,7 +408,7 @@ j_item_serialize_hashes (JItemDedup* item)
 		g_free(key);
 	}
 	gchar* json = bson_as_canonical_extended_json(b, NULL);
-	g_print("JSON read %s\n", json);
+	//g_print("JSON read %s\n", json);
 	bson_free(json);
 
 	j_trace_leave(G_STRFUNC);
@@ -465,7 +465,7 @@ j_item_refresh_hashes (JItemDedup* item, JSemantics* semantics)
 	j_batch_execute(sub_batch);
 
 	json = bson_as_canonical_extended_json(b, NULL);
-	g_print("JSON refreshed %s\n", json);
+	//g_print("JSON refreshed %s\n", json);
 	bson_free(json);
 
 	// apparently an empty bson has len == 5
@@ -502,7 +502,10 @@ j_item_dedup_read (JItemDedup* item, gpointer data, guint64 length, guint64 offs
 	j_trace_enter(G_STRFUNC, NULL);
 
 	first_chunk = offset / item->chunk_size;
-	chunks = (length+offset) / item->chunk_size + 1;
+	//FIXME test all cases
+	chunks = (length+offset) / item->chunk_size;
+	if ((length+offset) % item->chunk_size > 0)
+		chunks++;
 	destination_relative = 0;
 
 	j_item_refresh_hashes(item, j_batch_get_semantics(batch));
@@ -511,19 +514,22 @@ j_item_dedup_read (JItemDedup* item, gpointer data, guint64 length, guint64 offs
 	{
 		guint64 from, to, part;
 		const gchar* hash = g_array_index(item->hashes, gchar*, chunk);
-		printf("Read Hash: %s\n", hash);
+		//printf("Read Hash: %s\n", hash);
 		chunk_obj = j_distributed_object_new("chunks", hash, item->distribution);
 		j_distributed_object_create(chunk_obj, batch);
 		from = 0;
 		to = item->chunk_size;
 
-		if(chunk == first_chunk){
+		if(chunk == first_chunk)
+		{
 			from = offset;
 		}
 
-		if(chunk == chunks - 1){
+		if(chunk == chunks - 1)
+		{
 			to = item->chunk_size - (chunks * item->chunk_size - offset - length);
-			if(to <= 0){
+			if(to <= 0)
+			{
 				to = item->chunk_size;
 			}
 		}
@@ -583,13 +589,13 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 	chunks = length / item->chunk_size;
 	//last_chunk = first_chunk + chunks - 1; // might be unecesarry
 	remaining = chunks * item->chunk_size - chunk_offset - length;
-	printf("Chunk Size: %ld\n", item->chunk_size);
-	printf("First_chunk: %ld\n", first_chunk);
-	printf("Offset: %ld\n", offset);
-	printf("Chunk Offset: %ld\n", chunk_offset);
-	printf("Chunks: %ld\n", chunks);
-	printf("remaining: %ld\n", remaining);
-	printf("Length: %ld\n", length);
+//	printf("Chunk Size: %ld\n", item->chunk_size);
+//	printf("First_chunk: %ld\n", first_chunk);
+//	printf("Offset: %ld\n", offset);
+//	printf("Chunk Offset: %ld\n", chunk_offset);
+//	printf("Chunks: %ld\n", chunks);
+//	printf("remaining: %ld\n", remaining);
+//	printf("Length: %ld\n", length);
 
 	hash_len = g_array_get_element_size(item->hashes);
 
@@ -658,7 +664,7 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 			g_string_append_printf(hash_string, "%02x", hash_gen[i]);
 		}
 		hash = hash_string->str;
-		printf("Write Hash: %s\n", hash);
+		//printf("Write Hash: %s\n", hash);
 
 		chunk_kv = j_kv_new("chunk_refs", (const gchar*)hash);
 		j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, sub_batch);
@@ -870,7 +876,7 @@ j_item_dedup_new (JCollection* collection, gchar const* name, JDistribution* dis
 	item->ref_count = 1;
 
 	item->hashes = g_array_new(FALSE, FALSE, sizeof(guchar*));
-	item->chunk_size = 8; // small size for testing only
+	item->chunk_size = 1024; // small size for testing only
 
 	path = g_build_path("/", j_collection_get_name(item->collection), item->name, NULL);
 	item->kv = j_kv_new("items", path);

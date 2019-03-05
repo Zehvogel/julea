@@ -199,15 +199,16 @@ main (int argc, char** argv)
 	benchmark_message();
 
 	// KV client
-	benchmark_kv();
+	//benchmark_kv();
 
 	// Object client
-	benchmark_distributed_object();
-	benchmark_object();
+	//benchmark_distributed_object();
+	//benchmark_object();
 
 	// Item client
-	benchmark_collection();
-	benchmark_item();
+	//benchmark_collection();
+	//benchmark_item();
+	benchmark_item_dedup();
 
 	g_timer_destroy(j_benchmark_timer);
 	j_semantics_unref(j_benchmark_semantics);

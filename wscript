@@ -125,7 +125,7 @@ def options (ctx):
 def configure (ctx):
 	ctx.load('compiler_c')
 	ctx.load('gnu_dirs')
-	#ctx.load('clang_compilation_database')
+	ctx.load('clang_compilation_database')
 
 	ctx.env.JULEA_DEBUG = ctx.options.debug
 

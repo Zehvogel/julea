@@ -17,6 +17,7 @@ test_item (void)
 		g_autoptr(JCollection) collection = NULL;
 		g_autoptr(JItemDedup) item = NULL;
 		const char data[] = "1234567887654321"; //test-data-12345
+		printf("sizeof(data): %lu\n", sizeof(data));
 		char data2[sizeof(data)];
 		guint64 bytes_written = 0;
 		guint64 bytes_read = 0;
@@ -33,6 +34,12 @@ test_item (void)
 		j_batch_execute(batch);
 		printf("bytes_written: %lu\n", bytes_written);
 		j_item_dedup_read(item, data2, 8, 2, &bytes_read, batch);
+		j_batch_execute(batch);
+		data2[sizeof(data)-1] = '\0';
+		printf("bytes_read: %lu\n", bytes_read);
+		printf("after read: data: %s\n", data2);
+
+		j_item_dedup_read(item, data2, 16, 0, &bytes_read, batch);
 		j_batch_execute(batch);
 		data2[sizeof(data)-1] = '\0';
 		printf("bytes_read: %lu\n", bytes_read);
