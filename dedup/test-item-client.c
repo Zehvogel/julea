@@ -45,6 +45,9 @@ test_item (void)
 		printf("bytes_read: %lu\n", bytes_read);
 		printf("after read: data: %s\n", data2);
 
+		j_item_dedup_delete(item, batch);
+		j_batch_execute(batch);
+
 		g_assert(item != NULL);
 	}
 }

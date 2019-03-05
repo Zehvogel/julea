@@ -330,7 +330,7 @@ j_item_unref_chunk (JItemDedup* item, gchar* hash, JBatch* batch)
 	JDistributedObject* chunk_obj;
 	guint64 refcount = 0;
 	JBatch* sub_batch = j_batch_new(j_batch_get_semantics(batch));
-	bson_t* new_ref_bson = bson_new();
+	bson_t* new_ref_bson;
 
 	chunk_kv = j_kv_new("chunk_refs", (const gchar*)hash);
 	j_kv_get_callback(chunk_kv, j_item_hash_ref_callback, &refcount, sub_batch);
@@ -376,7 +376,7 @@ j_item_dedup_delete (JItemDedup* item, JBatch* batch)
 
 	j_kv_delete(item->kv, batch);
 	j_kv_delete(item->kv_h, batch);
-	
+
 	for (guint64 i = 0; i < item->hashes->len; i++)
 	{
 		gchar* hash = g_array_index(item->hashes, gchar*, i);
@@ -587,15 +587,17 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 	first_chunk = offset / item->chunk_size;
 	chunk_offset = offset % item->chunk_size;
 	chunks = length / item->chunk_size;
+	if ((length % item->chunk_size) > 0)
+		chunks++;
 	//last_chunk = first_chunk + chunks - 1; // might be unecesarry
 	remaining = chunks * item->chunk_size - chunk_offset - length;
-//	printf("Chunk Size: %ld\n", item->chunk_size);
-//	printf("First_chunk: %ld\n", first_chunk);
-//	printf("Offset: %ld\n", offset);
-//	printf("Chunk Offset: %ld\n", chunk_offset);
-//	printf("Chunks: %ld\n", chunks);
-//	printf("remaining: %ld\n", remaining);
-//	printf("Length: %ld\n", length);
+	printf("Chunk Size: %ld\n", item->chunk_size);
+	printf("First_chunk: %ld\n", first_chunk);
+	printf("Offset: %ld\n", offset);
+	printf("Chunk Offset: %ld\n", chunk_offset);
+	printf("Chunks: %ld\n", chunks);
+	printf("remaining: %ld\n", remaining);
+	printf("Length: %ld\n", length);
 
 	hash_len = g_array_get_element_size(item->hashes);
 
@@ -648,6 +650,7 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 			EVP_DigestUpdate(mdctx, first_buf, chunk_offset);
 			EVP_DigestUpdate(mdctx, data, item->chunk_size - chunk_offset);
 		}
+		//FIXME what if only one chunk?
 		else if (chunk == chunks - 1)
 		{
 			EVP_DigestUpdate(mdctx, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - chunk_offset);
@@ -876,7 +879,7 @@ j_item_dedup_new (JCollection* collection, gchar const* name, JDistribution* dis
 	item->ref_count = 1;
 
 	item->hashes = g_array_new(FALSE, FALSE, sizeof(guchar*));
-	item->chunk_size = 1024; // small size for testing only
+	item->chunk_size = 8; // small size for testing only
 
 	path = g_build_path("/", j_collection_get_name(item->collection), item->name, NULL);
 	item->kv = j_kv_new("items", path);
