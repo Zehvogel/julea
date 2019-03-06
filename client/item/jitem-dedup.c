@@ -889,6 +889,14 @@ end:
 	return item;
 }
 
+void j_item_set_chunk_size(JItemDedup* item, guint64 chunk_size)
+{
+	g_return_if_fail(item != NULL);
+	g_return_if_fail(chunk_size > 0);
+	// TODO: Only allowed to change if item is new	
+	item->chunk_size = chunk_size;
+}
+
 /**
  * Creates a new item from a BSON object.
  *

@@ -59,6 +59,7 @@ void j_item_dedup_read (JItemDedup*, gpointer, guint64, guint64, guint64*, JBatc
 void j_item_dedup_write (JItemDedup*, gconstpointer, guint64, guint64, guint64*, JBatch*);
 
 void j_item_dedup_get_status (JItemDedup*, JBatch*);
+void j_item_set_chunk_size(JItemDedup* item, guint64 chunk_size);
 
 guint64 j_item_dedup_get_size (JItemDedup*);
 gint64 j_item_dedup_get_modification_time (JItemDedup*);
