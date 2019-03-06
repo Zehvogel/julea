@@ -644,21 +644,22 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 		GString *hash_string = g_string_new (NULL);
 		gchar* hash;
 		guint32 refcount = 0;
+		guint64 len = item->chunk_size - chunk_offset - remaining;
+		guint64 data_offset = chunk * item->chunk_size + chunk_offset;
+
 		EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
 		if (chunk == 0)
 		{
 			EVP_DigestUpdate(mdctx, first_buf, chunk_offset);
-			EVP_DigestUpdate(mdctx, data, item->chunk_size - chunk_offset);
+			//EVP_DigestUpdate(mdctx, data, item->chunk_size - chunk_offset);
 		}
-		//FIXME what if only one chunk?
-		else if (chunk == chunks - 1)
+
+		EVP_DigestUpdate(mdctx, (const gchar*)data + data_offset, len);
+
+		if (chunk == chunks - 1)
 		{
-			EVP_DigestUpdate(mdctx, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - chunk_offset);
+			//EVP_DigestUpdate(mdctx, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - remaining);
 			EVP_DigestUpdate(mdctx, last_buf, remaining);
-		}
-		else
-		{
-			EVP_DigestUpdate(mdctx, (const gchar*)data + chunk * item->chunk_size, item->chunk_size);
 		}
 		EVP_DigestFinal_ex(mdctx, hash_gen, &md_len);
 
@@ -679,22 +680,19 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 			chunk_obj = j_distributed_object_new("chunks", (const gchar*)hash, item->distribution);
 			j_distributed_object_create(chunk_obj, batch);
 
-			if (chunk == 0)
+			if (chunk == 0 && chunk_offset > 0)
 			{
-				if(chunk_offset > 0) // Im "Idealfall" ist chunk_offset = 0, aber geht nicht wegen g_return_if_fail()
-					j_distributed_object_write(chunk_obj, first_buf, chunk_offset, 0, bytes_written, batch);
-				j_distributed_object_write(chunk_obj, data, item->chunk_size - chunk_offset, chunk_offset, bytes_written, batch);
+				j_distributed_object_write(chunk_obj, first_buf, chunk_offset, 0, bytes_written, batch);
+				//j_distributed_object_write(chunk_obj, data, item->chunk_size - chunk_offset, chunk_offset, bytes_written, batch);
 
 			}
-			else if (chunk == chunks -1)
+
+			j_distributed_object_write(chunk_obj, (const gchar*)data + data_offset, len, chunk_offset, bytes_written, batch);
+
+			if (chunk == chunks -1 && remaining > 0)
 			{
-				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - remaining, 0, bytes_written, batch);
-				if(remaining > 0) // Gleicher Fall wie oben
-					j_distributed_object_write(chunk_obj, last_buf, remaining, item->chunk_size - remaining, bytes_written, batch);
-			}
-			else
-			{
-				j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size, 0, bytes_written, batch);
+				//j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - remaining, 0, bytes_written, batch);
+				j_distributed_object_write(chunk_obj, last_buf, remaining, item->chunk_size - remaining, bytes_written, batch);
 			}
 		}
 

@@ -19,6 +19,8 @@ test_item (void)
 		const char data[] = "1234567887654321"; //test-data-12345
 		printf("sizeof(data): %lu\n", sizeof(data));
 		char data2[sizeof(data)];
+		char data3[3];
+		const char fortytwo[] = "42";
 		guint64 bytes_written = 0;
 		guint64 bytes_read = 0;
 
@@ -30,15 +32,33 @@ test_item (void)
 		printf("before write: data: %s\n", data);
 
 		// strings und ihr doofer \0 terminator >.<
+		printf("TEST: write 2 full chunks\n");
 		j_item_dedup_write(item, &data, sizeof(data)-1, 0, &bytes_written, batch);
 		j_batch_execute(batch);
 		printf("bytes_written: %lu\n", bytes_written);
-		j_item_dedup_read(item, data2, 8, 2, &bytes_read, batch);
+
+		printf("TEST: read 2 full chunks\n");
+		j_item_dedup_read(item, data2, 16, 0, &bytes_read, batch);
 		j_batch_execute(batch);
 		data2[sizeof(data)-1] = '\0';
 		printf("bytes_read: %lu\n", bytes_read);
 		printf("after read: data: %s\n", data2);
 
+		printf("TEST: read 2 chars\n");
+		j_item_dedup_read(item, data3, 2, 7, &bytes_read, batch);
+		j_batch_execute(batch);
+		data3[2] = '\0';
+		printf("bytes_read: %lu\n", bytes_read);
+		printf("after read: data: %s\n", data3);
+
+		printf("TEST: overwrite 2 chars\n");
+		printf("before write: data: %s\n", fortytwo);
+		j_item_dedup_write(item, &fortytwo, 2, 0, &bytes_written, batch);
+		j_batch_execute(batch);
+		printf("bytes_written: %lu\n", bytes_written);
+
+		memset(data2, '0', 16);
+		printf("TEST: read 2 full chunks\n");
 		j_item_dedup_read(item, data2, 16, 0, &bytes_read, batch);
 		j_batch_execute(batch);
 		data2[sizeof(data)-1] = '\0';
