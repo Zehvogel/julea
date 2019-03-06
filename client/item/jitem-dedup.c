@@ -591,6 +591,7 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 		chunks++;
 	//last_chunk = first_chunk + chunks - 1; // might be unecesarry
 	remaining = chunks * item->chunk_size - chunk_offset - length;
+	/*
 	printf("Chunk Size: %ld\n", item->chunk_size);
 	printf("First_chunk: %ld\n", first_chunk);
 	printf("Offset: %ld\n", offset);
@@ -598,7 +599,8 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 	printf("Chunks: %ld\n", chunks);
 	printf("remaining: %ld\n", remaining);
 	printf("Length: %ld\n", length);
-
+	*/
+	printf("chunks;%ld\n", chunks);
 	hash_len = g_array_get_element_size(item->hashes);
 
 	old_chunks = MIN(0, MIN(chunks, item->hashes->len - first_chunk));

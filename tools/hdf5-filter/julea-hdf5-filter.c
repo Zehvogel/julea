@@ -65,11 +65,10 @@ static size_t compressorFilter(unsigned int flags, size_t cd_nelmts,
      **
      ** 
      **/
-    // TODO: Identifier??
+    // TODO: Identifier?
     gchar *item_name = g_strdup_printf("Variable: %s:%ld", getenv("H5REPACK_VARIABLE"), identifier);
     ++identifier;
     printf("%s\n", item_name);
-    printf("nbytes: %ld\n", nbytes);
 
     g_autoptr(JBatch) batch = NULL;
     g_autoptr(JCollection) collection = NULL;
@@ -80,12 +79,14 @@ static size_t compressorFilter(unsigned int flags, size_t cd_nelmts,
     batch = j_batch_new_for_template(J_SEMANTICS_TEMPLATE_DEFAULT);
     collection = j_collection_create("test-collection", batch);
     item = j_item_dedup_create(collection, item_name, NULL, batch);
+    j_item_set_chunk_size(item, 2048);
     j_batch_execute(batch);
 
     j_item_dedup_write(item, *buf, nbytes, 0, &bytes_written, batch);
     j_batch_execute(batch);
     printf("bytes_written: %lu\n", bytes_written);
-    
+    *buf = item_name;
+    return strlen(item_name);
   }
     return PLUGIN_OK;
 }
