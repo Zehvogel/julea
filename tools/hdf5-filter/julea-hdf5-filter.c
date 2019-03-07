@@ -52,29 +52,44 @@ static size_t compressorFilter(unsigned int flags, size_t cd_nelmts,
   size_t outbuflen, outdatalen;
   int ret;
   if (flags & H5Z_FLAG_REVERSE) {
-
     /** Decompress data.
      **
      ** 
      **/
+    /*
+    g_autoptr(JBatch) batch = NULL;
+    g_autoptr(JCollection) collection = NULL;
+    g_autoptr(JItemDedup) item = NULL;
+    guint64 bytes_read = 0;
 
+    printf("nbytes: %ld\n", nbytes);
+    gchar *item_name = g_strdup_printf("%.*s", nbytes, *buf);
+    printf("Test: %s\n", item_name);
 
+    batch = j_batch_new_for_template(J_SEMANTICS_TEMPLATE_DEFAULT);
+    collection = j_collection_create("test-collection", batch);
+    item = j_item_dedup_create(collection, item_name, NULL, batch);
+    j_item_set_chunk_size(item, 2048);
+    j_batch_execute(batch);
+
+    j_item_dedup_read(item, data2, 10, 0, &bytes_read, batch);
+    j_batch_execute(batch);
+    printf("bytes_read: %lu\n", bytes_read);
+    */
   } else {
 
     /** Compress data.
      **
      ** 
      **/
-    // TODO: Identifier?
-    gchar *item_name = g_strdup_printf("Variable: %s:%ld", getenv("H5REPACK_VARIABLE"), identifier);
-    ++identifier;
-    printf("%s\n", item_name);
-
     g_autoptr(JBatch) batch = NULL;
     g_autoptr(JCollection) collection = NULL;
     g_autoptr(JItemDedup) item = NULL;
     guint64 bytes_written = 0;
-    guint64 bytes_read = 0;
+    // TODO: Identifier?
+    gchar *item_name = g_strdup_printf("%s:%ld", getenv("H5REPACK_VARIABLE"), identifier);
+    ++identifier;
+    printf("%s\n", item_name);
 
     batch = j_batch_new_for_template(J_SEMANTICS_TEMPLATE_DEFAULT);
     collection = j_collection_create("test-collection", batch);
