@@ -73,11 +73,10 @@ struct JItemDedup
 	gchar* name;
 
 	JCredentials* credentials;
-	JDistribution* distribution;
 
 	JKV* kv;
 	JKV* kv_h;
-	JDistributedObject* object;
+	JObject* object;
 
 	/**
 	 * The status.
@@ -186,7 +185,6 @@ j_item_dedup_unref (JItemDedup* item)
 		}
 
 		j_credentials_unref(item->credentials);
-		j_distribution_unref(item->distribution);
 
 		g_free(item->name);
 
@@ -229,13 +227,12 @@ j_item_dedup_get_name (JItemDedup* item)
  *
  * \param collection   A collection.
  * \param name         A name.
- * \param distribution A distribution.
  * \param batch        A batch.
  *
  * \return A new item. Should be freed with j_item_dedup_unref().
  **/
 JItemDedup*
-j_item_dedup_create (JCollection* collection, gchar const* name, JDistribution* distribution, JBatch* batch)
+j_item_dedup_create (JCollection* collection, gchar const* name, JBatch* batch)
 {
 	JItemDedup* item;
 	bson_t* value;
@@ -245,7 +242,7 @@ j_item_dedup_create (JCollection* collection, gchar const* name, JDistribution* 
 
 	j_trace_enter(G_STRFUNC, NULL);
 
-	if ((item = j_item_dedup_new(collection, name, distribution)) == NULL)
+	if ((item = j_item_dedup_new(collection, name)) == NULL)
 	{
 		goto end;
 	}
@@ -327,7 +324,7 @@ void
 j_item_unref_chunk (JItemDedup* item, gchar* hash, JBatch* batch)
 {
 	JKV* chunk_kv;
-	JDistributedObject* chunk_obj;
+	JObject* chunk_obj;
 	guint64 refcount = 0;
 	JBatch* sub_batch = j_batch_new(j_batch_get_semantics(batch));
 	bson_t* new_ref_bson;
@@ -348,9 +345,9 @@ j_item_unref_chunk (JItemDedup* item, gchar* hash, JBatch* batch)
 	else
 	{
 		j_kv_delete(chunk_kv, batch);
-		chunk_obj = j_distributed_object_new("chunks", (const gchar*)hash, item->distribution);
-		j_distributed_object_delete(chunk_obj, batch);
-		j_distributed_object_unref(chunk_obj);
+		chunk_obj = j_object_new("chunks", (const gchar*)hash);
+		j_object_delete(chunk_obj, batch);
+		j_object_unref(chunk_obj);
 	}
 }
 
@@ -493,7 +490,7 @@ void
 j_item_dedup_read (JItemDedup* item, gpointer data, guint64 length, guint64 offset, guint64* bytes_read, JBatch* batch)
 {
 	guint64 chunks, first_chunk, destination_relative;
-	JDistributedObject *chunk_obj;
+	JObject *chunk_obj;
 
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(data != NULL);
@@ -515,14 +512,14 @@ j_item_dedup_read (JItemDedup* item, gpointer data, guint64 length, guint64 offs
 		guint64 from, to, part;
 		const gchar* hash = g_array_index(item->hashes, gchar*, chunk);
 		//printf("Read Hash: %s\n", hash);
-		chunk_obj = j_distributed_object_new("chunks", hash, item->distribution);
-		j_distributed_object_create(chunk_obj, batch);
+		chunk_obj = j_object_new("chunks", hash);
+		j_object_create(chunk_obj, batch);
 		from = 0;
 		to = item->chunk_size;
 
 		if(chunk == first_chunk)
 		{
-			from = offset;
+			from = offset % item->chunk_size;
 		}
 
 		if(chunk == chunks - 1)
@@ -535,7 +532,7 @@ j_item_dedup_read (JItemDedup* item, gpointer data, guint64 length, guint64 offs
 		}
 		part = to - from;
 		printf("From: %ld | To: %ld | Length: %ld\n", from, to, part);
-		j_distributed_object_read(chunk_obj, (gchar*)data + destination_relative, part, from, bytes_read, batch);
+		j_object_read(chunk_obj, (gchar*)data + destination_relative, part, from, bytes_read, batch);
 		destination_relative += part;
 	}
 
@@ -566,7 +563,7 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 	guint64 first_chunk, chunk_offset, chunks, old_chunks, hash_len, remaining, bytes_read;
 	GArray* hashes;
 	gpointer first_buf, last_buf; // was wohl der type von last_buf ist :thinking:
-	JDistributedObject *first_obj, *last_obj, *chunk_obj;
+	JObject *first_obj, *last_obj, *chunk_obj;
 	JKV *chunk_kv;
 	bson_t *new_ref_bson;
  	guchar hash_gen[EVP_MAX_MD_SIZE];
@@ -616,9 +613,9 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 	{
 		// get offset part of first_chunk
 		first_buf = g_slice_alloc(chunk_offset);
-		first_obj = j_distributed_object_new("chunks", g_array_index(hashes, gchar*, 0), item->distribution);
-		j_distributed_object_create(first_obj, sub_batch);
-		j_distributed_object_read(first_obj, first_buf, chunk_offset, item->chunk_size - chunk_offset, &bytes_read, sub_batch);
+		first_obj = j_object_new("chunks", g_array_index(hashes, gchar*, 0));
+		j_object_create(first_obj, sub_batch);
+		j_object_read(first_obj, first_buf, chunk_offset, item->chunk_size - chunk_offset, &bytes_read, sub_batch);
 	}
 	else if (chunk_offset > 0)
 	{
@@ -629,9 +626,9 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 	{
 		// get remaining part of last_chunk
 		last_buf = g_slice_alloc(remaining);
-		last_obj = j_distributed_object_new("chunks", g_array_index(hashes, gchar*, chunks - 1), item->distribution);
-		j_distributed_object_create(last_obj, sub_batch);
-		j_distributed_object_read(last_obj, last_buf, item->chunk_size - remaining, remaining, &bytes_read, sub_batch);
+		last_obj = j_object_new("chunks", g_array_index(hashes, gchar*, chunks - 1));
+		j_object_create(last_obj, sub_batch);
+		j_object_read(last_obj, last_buf, item->chunk_size - remaining, remaining, &bytes_read, sub_batch);
 	}
 	else if (remaining > 0)
 	{
@@ -679,22 +676,22 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 
 		if (refcount == 0)
 		{
-			chunk_obj = j_distributed_object_new("chunks", (const gchar*)hash, item->distribution);
-			j_distributed_object_create(chunk_obj, batch);
+			chunk_obj = j_object_new("chunks", (const gchar*)hash);
+			j_object_create(chunk_obj, batch);
 
 			if (chunk == 0 && chunk_offset > 0)
 			{
-				j_distributed_object_write(chunk_obj, first_buf, chunk_offset, 0, bytes_written, batch);
-				//j_distributed_object_write(chunk_obj, data, item->chunk_size - chunk_offset, chunk_offset, bytes_written, batch);
+				j_object_write(chunk_obj, first_buf, chunk_offset, 0, bytes_written, batch);
+				//j_object_write(chunk_obj, data, item->chunk_size - chunk_offset, chunk_offset, bytes_written, batch);
 
 			}
 
-			j_distributed_object_write(chunk_obj, (const gchar*)data + data_offset, len, chunk_offset, bytes_written, batch);
+			j_object_write(chunk_obj, (const gchar*)data + data_offset, len, chunk_offset, bytes_written, batch);
 
 			if (chunk == chunks -1 && remaining > 0)
 			{
-				//j_distributed_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - remaining, 0, bytes_written, batch);
-				j_distributed_object_write(chunk_obj, last_buf, remaining, item->chunk_size - remaining, bytes_written, batch);
+				//j_object_write(chunk_obj, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - remaining, 0, bytes_written, batch);
+				j_object_write(chunk_obj, last_buf, remaining, item->chunk_size - remaining, bytes_written, batch);
 			}
 		}
 
@@ -745,7 +742,7 @@ j_item_dedup_get_status (JItemDedup* item, JBatch* batch)
 	j_trace_enter(G_STRFUNC, NULL);
 
 	// TODO: find a meaningful way to do this for chunks
-	// j_distributed_object_status(item->object, &(item->status.modification_time), &(item->status.size), batch);
+	// j_object_status(item->object, &(item->status.modification_time), &(item->status.size), batch);
 	(void) batch;
 
 	j_trace_leave(G_STRFUNC);
@@ -842,12 +839,11 @@ j_item_dedup_get_optimal_access_size (JItemDedup* item)
  *
  * \param collection   A collection.
  * \param name         An item name.
- * \param distribution A distribution.
  *
  * \return A new item. Should be freed with j_item_unref().
  **/
 JItemDedup*
-j_item_dedup_new (JCollection* collection, gchar const* name, JDistribution* distribution)
+j_item_dedup_new (JCollection* collection, gchar const* name)
 {
 	JItemDedup* item = NULL;
 	g_autofree gchar* path = NULL;
@@ -862,16 +858,10 @@ j_item_dedup_new (JCollection* collection, gchar const* name, JDistribution* dis
 		goto end;
 	}
 
-	if (distribution == NULL)
-	{
-		distribution = j_distribution_new(J_DISTRIBUTION_ROUND_ROBIN);
-	}
-
 	item = g_slice_new(JItemDedup);
 	bson_oid_init(&(item->id), bson_context_get_default());
 	item->name = g_strdup(name);
 	item->credentials = j_credentials_new();
-	item->distribution = distribution;
 	item->status.age = g_get_real_time();
 	item->status.size = 0;
 	item->status.modification_time = g_get_real_time();
@@ -928,7 +918,6 @@ j_item_dedup_new_from_bson (JCollection* collection, bson_t const* b)
 	item = g_slice_new(JItemDedup);
 	item->name = NULL;
 	item->credentials = j_credentials_new();
-	item->distribution = NULL;
 	item->status.age = 0;
 	item->status.size = 0;
 	item->status.modification_time = 0;
@@ -1016,7 +1005,6 @@ j_item_dedup_serialize (JItemDedup* item, JSemantics* semantics)
 {
 	bson_t* b;
 	bson_t* b_cred;
-	bson_t* b_distribution;
 
 	g_return_val_if_fail(item != NULL, NULL);
 
@@ -1024,7 +1012,6 @@ j_item_dedup_serialize (JItemDedup* item, JSemantics* semantics)
 
 	b = bson_new();
 	b_cred = j_credentials_serialize(item->credentials);
-	b_distribution = j_distribution_serialize(item->distribution);
 
 	bson_append_oid(b, "_id", -1, &(item->id));
 	bson_append_oid(b, "collection", -1, j_collection_get_id(item->collection));
@@ -1045,12 +1032,10 @@ j_item_dedup_serialize (JItemDedup* item, JSemantics* semantics)
 	}
 
 	bson_append_document(b, "credentials", -1, b_cred);
-	bson_append_document(b, "distribution", -1, b_distribution);
 
 	//bson_finish(b);
 
 	bson_destroy(b_cred);
-	bson_destroy(b_distribution);
 
 	j_trace_leave(G_STRFUNC);
 
@@ -1152,22 +1137,6 @@ j_item_dedup_deserialize (JItemDedup* item, bson_t const* b)
 			bson_init_static(b_cred, data, len);
 			j_credentials_deserialize(item->credentials, b_cred);
 			bson_destroy(b_cred);
-		}
-		else if (g_strcmp0(key, "distribution") == 0)
-		{
-			guint8 const* data;
-			guint32 len;
-			bson_t b_distribution[1];
-
-			if (item->distribution != NULL)
-			{
-				j_distribution_unref(item->distribution);
-			}
-
-			bson_iter_document(&iterator, &len, &data);
-			bson_init_static(b_distribution, data, len);
-			item->distribution = j_distribution_new_from_bson(b_distribution);
-			bson_destroy(b_distribution);
 		}
 	}
 

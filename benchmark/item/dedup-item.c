@@ -55,7 +55,7 @@ _benchmark_item_dedup_create (BenchmarkResult* result, gboolean use_batch)
 		g_autofree gchar* name = NULL;
 
 		name = g_strdup_printf("benchmark-%d", i);
-		item = j_item_dedup_create(collection, name, NULL, batch);
+		item = j_item_dedup_create(collection, name, batch);
 
 		j_item_dedup_delete(item, delete_batch);
 
@@ -119,7 +119,7 @@ _benchmark_item_dedup_delete (BenchmarkResult* result, gboolean use_batch)
 		g_autofree gchar* name = NULL;
 
 		name = g_strdup_printf("benchmark-%d", i);
-		item = j_item_dedup_create(collection, name, NULL, batch);
+		item = j_item_dedup_create(collection, name, batch);
 	}
 
 	j_batch_execute(batch);
@@ -197,7 +197,7 @@ benchmark_item_dedup_delete_batch_without_get (BenchmarkResult* result)
 		g_autofree gchar* name = NULL;
 
 		name = g_strdup_printf("benchmark-%d", i);
-		item = j_item_dedup_create(collection, name, NULL, batch);
+		item = j_item_dedup_create(collection, name, batch);
 
 		j_item_dedup_delete(item, delete_batch);
 	}
@@ -237,7 +237,7 @@ _benchmark_item_dedup_get_status (BenchmarkResult* result, gboolean use_batch)
 	batch = j_batch_new(semantics);
 
 	collection = j_collection_create("benchmark", batch);
-	item = j_item_dedup_create(collection, "benchmark", NULL, batch);
+	item = j_item_dedup_create(collection, "benchmark", batch);
 	j_item_dedup_write(item, dummy, 1, 0, &nb, batch);
 
 	j_batch_execute(batch);
@@ -304,7 +304,7 @@ _benchmark_item_dedup_read (BenchmarkResult* result, gboolean use_batch, guint b
 	batch = j_batch_new(semantics);
 
 	collection = j_collection_create("benchmark", batch);
-	item = j_item_dedup_create(collection, "benchmark", NULL, batch);
+	item = j_item_dedup_create(collection, "benchmark", batch);
 
 	for (guint i = 0; i < n; i++)
 	{
@@ -381,7 +381,7 @@ _benchmark_item_dedup_write (BenchmarkResult* result, gboolean use_batch, guint 
 	batch = j_batch_new(semantics);
 
 	collection = j_collection_create("benchmark", batch);
-	item = j_item_dedup_create(collection, "benchmark", NULL, batch);
+	item = j_item_dedup_create(collection, "benchmark", batch);
 	j_batch_execute(batch);
 
 	j_benchmark_timer_start();
@@ -457,7 +457,7 @@ _benchmark_item_dedup_unordered_create_delete (BenchmarkResult* result, gboolean
 		g_autofree gchar* name = NULL;
 
 		name = g_strdup_printf("benchmark-%d", i);
-		item = j_item_dedup_create(collection, name, NULL, batch);
+		item = j_item_dedup_create(collection, name, batch);
 
 		j_item_dedup_delete(item, batch);
 

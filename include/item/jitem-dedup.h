@@ -51,7 +51,7 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(JItemDedup, j_item_dedup_unref)
 gchar const* j_item_dedup_get_name (JItemDedup*);
 JCredentials* j_item_dedup_get_credentials (JItemDedup*);
 
-JItemDedup* j_item_dedup_create (JCollection*, gchar const*, JDistribution*, JBatch*);
+JItemDedup* j_item_dedup_create (JCollection*, gchar const*, JBatch*);
 void j_item_dedup_delete (JItemDedup*, JBatch*);
 void j_item_dedup_get (JCollection*, JItemDedup**, gchar const*, JBatch*);
 

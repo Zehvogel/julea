@@ -26,7 +26,7 @@ test_item (void)
 
 		batch = j_batch_new_for_template(J_SEMANTICS_TEMPLATE_DEFAULT);
 		collection = j_collection_create("test-collection", batch);
-		item = j_item_dedup_create(collection, "test-item", NULL, batch);
+		item = j_item_dedup_create(collection, "test-item", batch);
 		j_batch_execute(batch);
 
 		printf("before write: data: %s\n", data);

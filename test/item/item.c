@@ -50,7 +50,7 @@ test_item_dedup_fixture_setup (JItemDedup** item, gconstpointer data)
 
 	batch = j_batch_new_for_template(J_SEMANTICS_TEMPLATE_DEFAULT);
 	collection = j_collection_create("test-collection", batch);
-	*item = j_item_dedup_create(collection, "test-item", NULL, batch);
+	*item = j_item_dedup_create(collection, "test-item", batch);
 }
 
 static
@@ -105,7 +105,7 @@ test_item_dedup_new_free (void)
 
 		batch = j_batch_new_for_template(J_SEMANTICS_TEMPLATE_DEFAULT);
 		collection = j_collection_create("test-collection", batch);
-		item = j_item_dedup_create(collection, "test-item", NULL, batch);
+		item = j_item_dedup_create(collection, "test-item", batch);
 
 		g_assert(item != NULL);
 	}

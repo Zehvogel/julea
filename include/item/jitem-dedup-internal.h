@@ -38,7 +38,7 @@
 
 G_BEGIN_DECLS
 
-G_GNUC_INTERNAL JItemDedup* j_item_dedup_new (JCollection*, gchar const*, JDistribution*);
+G_GNUC_INTERNAL JItemDedup* j_item_dedup_new (JCollection*, gchar const*);
 G_GNUC_INTERNAL JItemDedup* j_item_dedup_new_from_bson (JCollection*, bson_t const*);
 
 G_GNUC_INTERNAL JCollection* j_item_dedup_get_collection (JItemDedup*);
