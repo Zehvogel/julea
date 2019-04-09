@@ -32,36 +32,45 @@ test_item (void)
 		printf("before write: data: %s\n", data);
 
 		// strings und ihr doofer \0 terminator >.<
-		printf("TEST: write 2 full chunks\n");
+		printf("\nTEST: write 2 full chunks\n");
 		j_item_dedup_write(item, &data, sizeof(data)-1, 0, &bytes_written, batch);
 		j_batch_execute(batch);
 		printf("bytes_written: %lu\n", bytes_written);
 
-		printf("TEST: read 2 full chunks\n");
+		printf("\nTEST: read 2 full chunks\n");
 		j_item_dedup_read(item, data2, 16, 0, &bytes_read, batch);
 		j_batch_execute(batch);
 		data2[sizeof(data)-1] = '\0';
 		printf("bytes_read: %lu\n", bytes_read);
 		printf("after read: data: %s\n", data2);
 
-		printf("TEST: read 2 chars\n");
+		printf("\nTEST: read 2 chars\n");
 		j_item_dedup_read(item, data3, 2, 7, &bytes_read, batch);
 		j_batch_execute(batch);
 		data3[2] = '\0';
 		printf("bytes_read: %lu\n", bytes_read);
 		printf("after read: data: %s\n", data3);
 
-		printf("TEST: overwrite 2 chars\n");
+		printf("\nTEST: overwrite 2 chars\n");
 		printf("before write: data: %s\n", fortytwo);
+		bytes_written = 0;
 		j_item_dedup_write(item, &fortytwo, 2, 0, &bytes_written, batch);
 		j_batch_execute(batch);
 		printf("bytes_written: %lu\n", bytes_written);
 
 		memset(data2, '0', 16);
-		printf("TEST: read 2 full chunks\n");
+		printf("\nTEST: read 2 full chunks\n");
 		j_item_dedup_read(item, data2, 16, 0, &bytes_read, batch);
 		j_batch_execute(batch);
-		data2[sizeof(data)-1] = '\0';
+		data2[16] = '\0';
+		printf("bytes_read: %lu\n", bytes_read);
+		printf("after read: data: %s\n", data2);
+
+		memset(data2, '0', 16);
+		printf("\nTEST: read 3 bytes of 1 chunks\n");
+		j_item_dedup_read(item, data2, 3, 0, &bytes_read, batch);
+		j_batch_execute(batch);
+		data2[16] = '\0';
 		printf("bytes_read: %lu\n", bytes_read);
 		printf("after read: data: %s\n", data2);
 

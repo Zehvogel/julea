@@ -371,6 +371,8 @@ j_item_dedup_delete (JItemDedup* item, JBatch* batch)
 
 	j_trace_enter(G_STRFUNC, NULL);
 
+	j_item_refresh_hashes(item, j_batch_get_semantics(batch));
+
 	j_kv_delete(item->kv, batch);
 	j_kv_delete(item->kv_h, batch);
 
