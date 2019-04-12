@@ -1,5 +1,5 @@
 # JULEA - Flexible storage framework
-# Copyright (C) 2017-2018 Michael Kuhn
+# Copyright (C) 2017-2019 Michael Kuhn
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License as published by
@@ -18,7 +18,7 @@ spack_clone ()
 {
 	local spack_commit
 
-	spack_commit='d5327d8d4bfa0fd1094dacbdc07a83ed41e4a50e'
+	spack_commit='ec4da14e2c17f1d6bf66ef2fc2b34c8716f08785'
 
 	test -n "${SPACK_DIR}" || return 1
 

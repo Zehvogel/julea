@@ -1,6 +1,6 @@
 /*
  * JULEA - Flexible storage framework
- * Copyright (C) 2010-2018 Michael Kuhn
+ * Copyright (C) 2010-2019 Michael Kuhn
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -34,6 +34,7 @@ G_BEGIN_DECLS
 struct JItemIterator;
 
 typedef struct JItemIterator JItemIterator;
+G_END_DECLS
 
 #include <item/jcollection.h>
 #include <item/jitem.h>

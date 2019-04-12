@@ -1,6 +1,6 @@
 /*
  * JULEA - Flexible storage framework
- * Copyright (C) 2010-2018 Michael Kuhn
+ * Copyright (C) 2010-2019 Michael Kuhn
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -51,11 +51,11 @@ struct JKVURI;
 
 typedef struct JKVURI JKVURI;
 
-G_BEGIN_DECLS
+G_END_DECLS
 
 #include <kv/jkv.h>
 
-G_END_DECLS
+G_BEGIN_DECLS
 
 JKVURI* j_kv_uri_new (gchar const*, JKVURIScheme);
 void j_kv_uri_free (JKVURI*);

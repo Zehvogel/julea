@@ -1,5 +1,5 @@
 # JULEA - Flexible storage framework
-# Copyright (C) 2017-2018 Michael Kuhn
+# Copyright (C) 2017-2019 Michael Kuhn
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License as published by
@@ -26,6 +26,7 @@ SELF_BASE="${SELF_PATH##*/}"
 
 set_path
 set_library_path
+set_pkg_config_path
 
 SPACK_DIR="$(get_directory "${SELF_DIR}/..")/dependencies"
 

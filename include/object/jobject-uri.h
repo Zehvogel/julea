@@ -1,6 +1,6 @@
 /*
  * JULEA - Flexible storage framework
- * Copyright (C) 2010-2018 Michael Kuhn
+ * Copyright (C) 2010-2019 Michael Kuhn
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -55,12 +55,12 @@ struct JObjectURI;
 
 typedef struct JObjectURI JObjectURI;
 
-G_BEGIN_DECLS
+G_END_DECLS
 
 #include <object/jdistributed-object.h>
 #include <object/jobject.h>
 
-G_END_DECLS
+G_BEGIN_DECLS
 
 JObjectURI* j_object_uri_new (gchar const*, JObjectURIScheme);
 void j_object_uri_free (JObjectURI*);

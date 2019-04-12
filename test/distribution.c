@@ -1,6 +1,6 @@
 /*
  * JULEA - Flexible storage framework
- * Copyright (C) 2010-2018 Michael Kuhn
+ * Copyright (C) 2010-2019 Michael Kuhn
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -76,7 +76,7 @@ test_distribution_distribute (JDistributionType type, JConfiguration** configura
 
 	(void)data;
 
-	block_size = J_STRIPE_SIZE - 1;
+	block_size = j_configuration_get_stripe_size(*configuration) - 1;
 
 	distribution = j_distribution_new_for_configuration(type, *configuration);
 	j_distribution_reset(distribution, 4 * block_size, 42);

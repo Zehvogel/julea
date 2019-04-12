@@ -1,6 +1,6 @@
 /*
  * JULEA - Flexible storage framework
- * Copyright (C) 2010-2018 Michael Kuhn
+ * Copyright (C) 2010-2019 Michael Kuhn
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -47,6 +47,8 @@ jfs_truncate (char const* path, off_t size)
 			// FIXME
 			ret = 0;
 		}
+
+		bson_destroy(file);
 	}
 
 	return ret;
