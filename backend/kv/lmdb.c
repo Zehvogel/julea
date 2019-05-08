@@ -188,6 +188,154 @@ error:
 
 static
 gboolean
+backend_ref_get(gchar const* namespace, gchar const* key, guint* ref)
+{
+	gboolean ret = FALSE;
+
+	MDB_txn* txn;
+	MDB_val m_key;
+	MDB_val m_value;
+	g_autofree gchar* nskey = NULL;
+
+	g_return_val_if_fail(namespace != NULL, FALSE);
+	g_return_val_if_fail(key != NULL, FALSE);
+	g_return_val_if_fail(ref != NULL, FALSE);
+
+	if (mdb_txn_begin(backend_env, NULL, 0, &txn) != 0)
+	{
+		goto error;
+	}
+
+	nskey = g_strdup_printf("ref:%s:%s", namespace, key);
+
+	m_key.mv_size = strlen(nskey) + 1;
+	m_key.mv_data = nskey;
+
+	if (mdb_get(txn, backend_dbi, &m_key, &m_value) != 0)
+	{
+		goto error;
+	}
+
+	if (mdb_txn_commit(txn) != 0)
+	{
+		goto error;
+	}
+
+	*ref = *(guint*)m_value.mv_data;
+
+	return ret;
+
+error:
+	return FALSE;
+}
+
+static
+gboolean
+_backend_ref_modify(gchar const* namespace, gchar const* key, gboolean inc,
+		    gint (*callback)(gpointer), gpointer callback_data)
+{
+	gboolean ret = FALSE;
+
+	MDB_txn* txn;
+	MDB_val m_key;
+	MDB_val m_oldvalue;
+	guint refcount = 0;
+	gint err;
+	g_autofree gchar* nskey = NULL;
+
+	g_return_val_if_fail(namespace != NULL, FALSE);
+	g_return_val_if_fail(key != NULL, FALSE);
+
+	if (mdb_txn_begin(backend_env, NULL, 0, &txn) != 0)
+	{
+		goto error;
+	}
+
+	nskey = g_strdup_printf("ref:%s:%s", namespace, key);
+
+	m_key.mv_size = strlen(nskey) + 1;
+	m_key.mv_data = nskey;
+
+	err = mdb_get(txn, backend_dbi, &m_key, &m_oldvalue);
+	if (err != 0 && err != MDB_NOTFOUND)
+	{
+		goto error;
+	}
+
+	refcount = *(guint*)m_oldvalue.mv_data;
+
+	if (inc)
+	{
+		refcount++;
+	}
+	else if (refcount > 0)
+	{
+		refcount--;
+	}
+	else
+	{
+		goto error;
+	}
+
+	if (refcount == 0)
+	{
+		if (mdb_del(txn, backend_dbi, &m_key, 0) != 0)
+		{
+			goto error;
+		}
+		if (callback != NULL)
+		{
+			callback(callback_data);
+		}
+	}
+	else
+	{
+		MDB_val m_newvalue;
+		m_newvalue.mv_size = 1;
+		m_newvalue.mv_data = &refcount;
+
+		if (mdb_put(txn, backend_dbi, &m_key, &m_newvalue, 0) != 0)
+		{
+			goto error;
+		}
+	}
+
+	if (mdb_txn_commit(txn) != 0)
+	{
+		goto error;
+	}
+
+	return ret;
+
+error:
+	return FALSE;
+}
+
+static
+gboolean
+backend_ref_inc(gchar const* namespace, gchar const* key)
+{
+	return _backend_ref_modify(namespace, key, TRUE, NULL, NULL);
+}
+
+static
+gboolean
+backend_ref_dec(gchar const* namespace, gchar const* key)
+{
+	return _backend_ref_modify(namespace, key, FALSE, NULL, NULL);
+}
+
+static
+gboolean
+backend_ref_dec_callback(gchar const* namespace, gchar const* key,
+			 gint (*callback)(gpointer), gpointer callback_data)
+{
+	return _backend_ref_modify(namespace, key, FALSE, callback,
+				   callback_data);
+}
+
+static
+gboolean
 backend_get_all (gchar const* namespace, gpointer* data)
 {
 	JLMDBIterator* iterator = NULL;
@@ -339,7 +487,11 @@ JBackend lmdb_backend = {
 		.backend_get = backend_get,
 		.backend_get_all = backend_get_all,
 		.backend_get_by_prefix = backend_get_by_prefix,
-		.backend_iterate = backend_iterate
+		.backend_iterate = backend_iterate,
+		.backend_ref_get = backend_ref_get,
+		.backend_ref_inc = backend_ref_inc,
+		.backend_ref_dec = backend_ref_dec,
+		.backend_ref_dec_callback = backend_ref_dec_callback,
 	}
 };
 

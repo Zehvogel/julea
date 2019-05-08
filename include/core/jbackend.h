@@ -52,6 +52,8 @@ enum JBackendComponent
 
 typedef enum JBackendComponent JBackendComponent;
 
+typedef gint (*JRefCallback) (gpointer);
+
 struct JBackend
 {
 	JBackendType type;
@@ -94,6 +96,11 @@ struct JBackend
 			gboolean (*backend_get_all) (gchar const*, gpointer*);
 			gboolean (*backend_get_by_prefix) (gchar const*, gchar const*, gpointer*);
 			gboolean (*backend_iterate) (gpointer, bson_t*);
+
+			gboolean (*backend_ref_get) (gchar const*, gchar const*, guint*);
+			gboolean (*backend_ref_inc) (gchar const*, gchar const*);
+			gboolean (*backend_ref_dec) (gchar const*, gchar const*);
+			gboolean (*backend_ref_dec_callback) (gchar const*, gchar const*, JRefCallback, gpointer);
 		}
 		kv;
 	};
