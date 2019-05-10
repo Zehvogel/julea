@@ -48,6 +48,7 @@ typedef struct JLMDBIterator JLMDBIterator;
 
 static MDB_env* backend_env = NULL;
 static MDB_dbi backend_dbi;
+static GHashTable* backend_locks = NULL;
 
 static
 gboolean
@@ -276,11 +277,79 @@ out:
 
 static
 gboolean
+backend_create_lock (gchar const* namespace, gchar const* key)
+{
+	gchar* nskey;
+	GRecMutex* mutex = NULL;
+
+	g_return_val_if_fail(namespace != NULL, FALSE);
+	g_return_val_if_fail(key != NULL, FALSE);
+
+	g_rec_mutex_init(mutex);
+
+	nskey = g_strdup_printf("%s:%s", namespace, key);
+
+	if (!g_hash_table_insert(backend_locks, nskey, mutex))
+	{
+		goto error;
+	}
+
+	return TRUE;
+
+error:
+	g_rec_mutex_clear(mutex);
+	g_free(nskey);
+
+	return FALSE;
+}
+
+static
+gboolean
+backend_acquire_lock (gchar const* namespace, gchar const* key)
+{
+	g_autofree gchar* nskey;
+	GRecMutex* mutex;
+
+	g_return_val_if_fail(namespace != NULL, FALSE);
+	g_return_val_if_fail(key != NULL, FALSE);
+
+	nskey = g_strdup_printf("%s:%s", namespace, key);
+
+	mutex = g_hash_table_lookup(backend_locks, nskey);
+	if (mutex == NULL)
+	{
+		goto error;
+	}
+
+	g_rec_mutex_lock(mutex);
+
+	return TRUE;
+error:
+	return FALSE;
+}
+
+
+static
+void
+_backend_clear_lock (gpointer lock)
+{
+	g_rec_mutex_locker_free(lock);
+}
+
+static
+gboolean
 backend_init (gchar const* path)
 {
 	MDB_txn* txn;
 
 	g_return_val_if_fail(path != NULL, FALSE);
+
+	backend_locks = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
+					      _backend_clear_lock);
+	if (backend_locks == NULL)
+	{
+		return FALSE;
+	}
 
 	g_mkdir_with_parents(path, 0700);
 
@@ -322,6 +391,10 @@ backend_fini (void)
 	if (backend_env != NULL)
 	{
 		mdb_env_close(backend_env);
+	}
+	if (backend_locks != NULL)
+	{
+		g_hash_table_unref(backend_locks);
 	}
 }
 
