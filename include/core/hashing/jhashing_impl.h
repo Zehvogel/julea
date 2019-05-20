@@ -33,7 +33,8 @@ G_BEGIN_DECLS
 
 enum hashing_algorithms
 {
-	J_HASH_SHA256
+	J_HASH_SHA256,
+	J_HASH_XXHASH
 };
 
 typedef struct{

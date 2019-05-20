@@ -20,51 +20,30 @@
  * \file
  **/
 
-#include <julea-config.h>
+#ifndef JULEA_HASH_XXHASH_H
+#define JULEA_HASH_XXHASH_H
+
+#if !defined(JULEA_H) && !defined(JULEA_COMPILATION)
+#error "Only <julea.h> can be included directly."
+#endif
+
 #include <glib.h>
-#include <glib/gi18n.h>
+#include <hashing/jhashing_impl.h>
 
-#include <hashing/jhash_sha256.h>
+G_BEGIN_DECLS
 
+void* xxhash_context(void);
 
-void* sha256_context(void){
-	GChecksum *mdctx;
-	mdctx = g_checksum_new(G_CHECKSUM_SHA256);
-	return mdctx;
-}
+int xxhash_init(void *ctx);
 
-int sha256_init(void *ctx){
-	g_checksum_reset(ctx);
-	return 0;
-}
+int xxhash_update(void *ctx, const void *data, size_t length);
 
-int sha256_update(void *ctx, const void *data, size_t length){
-	g_checksum_update(ctx, data, length);
-	return 0;
-}
+int xxhash_finalize(void *ctx, gchar **hash);
 
-int sha256_finalize(void *ctx, gchar **hash){
-	gchar *checksum_string = g_checksum_get_string(ctx);
-	*hash = g_strdup(checksum_string);
-	return strlen(*hash);
-}
+int xxhash_destroy(void *ctx);
 
-int sha256_destroy(void *ctx){
-	g_checksum_free(ctx);
-	return 0;
-}
+extern jhash_algorithm hash_xxhash;
 
-jhash_algorithm hash_sha256 = {
-    sha256_context,
-    sha256_init,
-    sha256_update,
-    sha256_finalize,
-	sha256_destroy,
-    "SHA256",
-    J_HASH_SHA256
-};
+G_END_DECLS
 
-
-/**
- * @}
- **/
+#endif

@@ -42,9 +42,11 @@
 #include <openssl/evp.h>
 
 #include <hashing/jhash_sha256.h>
+#include <hashing/jhash_xxhash.h>
 
 static jhash_algorithm* algo_array[] = {
-	& hash_sha256
+	& hash_sha256,
+	& hash_xxhash
 };
 /**
  * \defgroup JItem Item
@@ -518,7 +520,7 @@ j_item_dedup_read (JItemDedup* item, gpointer data, guint64 length, guint64 offs
 	{
 		guint64 from, to, part;
 		const gchar* hash = g_array_index(item->hashes, gchar*, chunk);
-		//printf("Read Hash: %s\n", hash);
+		printf("Read Hash: %s\n", hash);
 		chunk_obj = j_object_new("chunks", hash);
 		j_object_create(chunk_obj, batch);
 		from = 0;
@@ -575,6 +577,7 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 	bson_t *new_ref_bson;
 	JBatch* sub_batch;
 	void* hash_context;
+	int hash_choice;
 
 	g_return_if_fail(item != NULL);
 	g_return_if_fail(data != NULL);
@@ -582,6 +585,7 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 
 	j_trace_enter(G_STRFUNC, NULL);
 
+	hash_choice = J_HASH_SHA256;
 	// refresh chunks before write
 	j_item_refresh_hashes(item, j_batch_get_semantics(batch));
 
@@ -642,7 +646,7 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 
 	j_batch_execute(sub_batch);
 
- 	hash_context = algo_array[J_HASH_SHA256]->create_context();
+ 	hash_context = algo_array[hash_choice]->create_context();
 
 	for (guint64 chunk = 0; chunk < chunks; chunk++)
 	{
@@ -652,26 +656,26 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 		guint64 data_offset = chunk * item->chunk_size + chunk_offset;
 
 		//EVP_DigestInit_ex(hash_context, EVP_sha256(), NULL);
-		algo_array[J_HASH_SHA256]->init(hash_context);
+		algo_array[hash_choice]->init(hash_context);
 
 		if (chunk == 0)
 		{
 			//EVP_DigestUpdate(hash_context, first_buf, chunk_offset);
-			algo_array[J_HASH_SHA256]->update(hash_context, first_buf, chunk_offset);
+			algo_array[hash_choice]->update(hash_context, first_buf, chunk_offset);
 			//EVP_DigestUpdate(hash_context, data, item->chunk_size - chunk_offset);
 		}
 
 		//EVP_DigestUpdate(hash_context, (const gchar*)data + data_offset, len);
-		algo_array[J_HASH_SHA256]->update(hash_context, (const gchar*)data + data_offset, len);
+		algo_array[hash_choice]->update(hash_context, (const gchar*)data + data_offset, len);
 
 		if (chunk == chunks - 1)
 		{
 			//EVP_DigestUpdate(hash_context, (const gchar*)data + chunk * item->chunk_size, item->chunk_size - remaining);
 			//EVP_DigestUpdate(hash_context, last_buf, remaining);
-			algo_array[J_HASH_SHA256]->update(hash_context, last_buf, remaining);
+			algo_array[hash_choice]->update(hash_context, last_buf, remaining);
 		}
 		//EVP_DigestFinal_ex(hash_context, hash_gen, &md_len);
-		algo_array[J_HASH_SHA256]->finalize(hash_context, &hash);
+		algo_array[hash_choice]->finalize(hash_context, &hash);
 		printf("Write Hash: %s\n", hash);
 
 		chunk_kv = j_kv_new("chunk_refs", (const gchar*)hash);
@@ -717,10 +721,9 @@ j_item_dedup_write (JItemDedup* item, gconstpointer data, guint64 length, guint6
 		}
 
 		g_array_insert_val(item->hashes, chunk, hash);
-
 	}
 	//EVP_MD_CTX_destroy(hash_context);
-	algo_array[J_HASH_SHA256]->destroy(hash_context);
+	algo_array[hash_choice]->destroy(hash_context);
 
 	j_kv_delete(item->kv_h, sub_batch);
 	j_kv_put(item->kv_h, j_item_serialize_hashes(item), sub_batch);

@@ -124,8 +124,8 @@ spack_get_dependencies ()
 	dependencies="${dependencies} libmongoc"
 	dependencies="${dependencies} sqlite"
 
-	# Openssl for dedup
-	dependencies="${dependencies} openssl"
+	# XXHash for dedup
+	dependencies="${dependencies} xxhash"
 
 	#dependencies="${dependencies} mpi"
 	#dependencies="${dependencies} otf"
