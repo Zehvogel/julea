@@ -40,14 +40,19 @@ def check_cfg_rpath(ctx, **kwargs):
 	r = ctx.check_cfg(**kwargs)
 
 	if ctx.options.debug:
-		rpath = 'RPATH_{0}'.format(kwargs['uselib_store'])
 		libpath = 'LIBPATH_{0}'.format(kwargs['uselib_store'])
-		ctx.env[rpath] = ctx.env[libpath]
+
+		if libpath in ctx.env:
+			rpath = 'RPATH_{0}'.format(kwargs['uselib_store'])
+			ctx.env[rpath] = ctx.env[libpath]
 
 	return r
 
 
 def check_cc_rpath(ctx, opt, **kwargs):
+	if opt in (None, 'no', 'off'):
+		return False
+
 	if opt:
 		kwargs['includes'] = ['{0}/include'.format(opt)]
 		kwargs['libpath'] = ['{0}/lib'.format(opt)]
@@ -201,6 +206,7 @@ def configure(ctx):
 			mandatory=False
 		)
 
+	# FIXME check for VOL support
 	ctx.env.JULEA_HDF = \
 		check_cc_rpath(
 			ctx,
@@ -208,6 +214,7 @@ def configure(ctx):
 			header_name='hdf5.h',
 			lib='hdf5',
 			uselib_store='HDF5',
+			define_name='HAVE_HDF5',
 			mandatory=False
 		)
 
@@ -389,6 +396,10 @@ def build(ctx):
 	use_julea_core = ['M', 'GLIB', 'ASAN', 'XXHASH']  # 'UBSAN'
 	use_julea_lib = use_julea_core + ['GIO', 'GOBJECT', 'LIBBSON', 'OTF']
 	use_julea_backend = use_julea_core + ['GMODULE']
+	use_julea_object = use_julea_core + ['lib/julea', 'lib/julea-object']
+	use_julea_kv = use_julea_core + ['lib/julea', 'lib/julea-kv']
+	use_julea_item = use_julea_core + ['lib/julea', 'lib/julea-item']
+	use_julea_hdf = use_julea_core + ['lib/julea'] + ['lib/julea-hdf5'] if ctx.env.JULEA_HDF else []
 
 	include_julea_core = ['include', 'include/core']
 
@@ -404,10 +415,17 @@ def build(ctx):
 
 	clients = ['object', 'kv', 'item']
 
+	if ctx.env.JULEA_HDF:
+		clients.append('hdf5')
+
 	for client in clients:
 		use_extra = []
 
 		if client == 'item':
+			use_extra.append('lib/julea-kv')
+			use_extra.append('lib/julea-object')
+		elif client == 'hdf5':
+			use_extra.append('HDF5')
 			use_extra.append('lib/julea-kv')
 			use_extra.append('lib/julea-object')
 
@@ -425,7 +443,7 @@ def build(ctx):
 	ctx.program(
 		source=ctx.path.ant_glob('test/**/*.c'),
 		target='test/julea-test',
-		use=use_julea_core + ['lib/julea', 'lib/julea-object', 'lib/julea-item'],
+		use=use_julea_object + use_julea_item + use_julea_hdf,
 		includes=include_julea_core + ['test'],
 		rpath=get_rpath(ctx),
 		install_path=None
@@ -445,7 +463,7 @@ def build(ctx):
 	ctx.program(
 		source=ctx.path.ant_glob('benchmark/**/*.c'),
 		target='benchmark/julea-benchmark',
-		use=use_julea_core + ['lib/julea', 'lib/julea-item'],
+		use=use_julea_item + use_julea_hdf,
 		includes=include_julea_core + ['benchmark'],
 		rpath=get_rpath(ctx),
 		install_path=None
@@ -528,7 +546,7 @@ def build(ctx):
 	ctx.program(
 		source=ctx.path.ant_glob('cli/*.c'),
 		target='cli/julea-cli',
-		use=use_julea_core + ['lib/julea', 'lib/julea-object', 'lib/julea-item'],
+		use=use_julea_object + use_julea_kv + use_julea_item,
 		includes=include_julea_core,
 		rpath=get_rpath(ctx),
 		install_path='${BINDIR}'
@@ -555,7 +573,7 @@ def build(ctx):
 		ctx.program(
 			source=ctx.path.ant_glob('fuse/*.c'),
 			target='fuse/julea-fuse',
-			use=use_julea_core + ['lib/julea', 'lib/julea-kv', 'lib/julea-object', 'FUSE'],
+			use=use_julea_object + use_julea_kv + ['FUSE'],
 			includes=include_julea_core,
 			rpath=get_rpath(ctx),
 			install_path='${BINDIR}'
